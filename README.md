@@ -8,11 +8,14 @@ However you need to set up the XHR yourself.
 
 This is based on the CometD 3.0.3 JavaScript library.
 
-## To get the main CometD constructor and an instance:
+## Example
 
 ```javascript
+
+
 let { CometD, LongPollingTransport, Transport } = require('cometd');
 
+// You need to implement the XHR for the transports.
 function LongPoller() {
 
   let transport = Transport.derive(new LongPollingTransport());
@@ -55,11 +58,27 @@ function LongPoller() {
 let cometd = new CometD();
 
 cometd.registerTransport('long-polling', new LongPoller());
+
+cometd.init('<somewhere>/cometd');
+
+cometd.addListener('/meta/connect', (message) => {
+
+  console.log(message);
+
+});
+
 ```
+
+## Todo
+
+- Look into using EventEmitters in place of the above boilerplate.
+- Ensure all the extenstions work as expected.
+- Provide more transport examples.
 
 ## References
 
 [cometd at github](https://github.com/cometd/cometd)
+
 [cometd JavaScript library docs](http://docs.cometd.org/3/reference/#_javascript)
 
 ## Also see
