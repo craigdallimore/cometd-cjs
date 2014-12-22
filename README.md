@@ -1,14 +1,16 @@
 # CometD library for CJS.
 
-This is little more than taking the [CometdD JaveaScript library](https://github.com/cometd/cometd) and making each component available via [module.exports](http://nodejs.org/docs/latest/api/modules.html#modules_module_exports).
+NOTE: This is not recommended to be used in production yet.
+
+This is little more than taking the [CometdD JavaScript library](https://github.com/cometd/cometd) and making each component available via [module.exports](http://nodejs.org/docs/latest/api/modules.html#modules_module_exports).
 
 The `org.cometd` namespace is not present.
 
-## To get the main CometD constructor
+## To get the main CometD constructor and an instance:
 
 ```javascript
-let CometD = require('cometd');
-let cometd = new CometD(<optional name>);
+var CometD = require('cometd').CometD;
+var cometd = new CometD(<optional name>);
 ```
 
 TODO:
@@ -20,6 +22,8 @@ TODO:
   - Websocket
   - LongPolling
   - Callbackpolling
+
+- Keywords
 
 [webapp](https://github.com/cometd/cometd/tree/master/cometd-javascript/common/src/main/webapp/org/cometd)
 - find out what these extensions are for:
