@@ -1,7 +1,14 @@
-org.cometd.WebSocketTransport = function()
+var Transport = require('./Transport');
+var _JSON = require('./cometd-json');
+var Utils = require('./Utils');
+
+// Use an alias to be less dependent on browser's quirks.
+_WebSocket = window.WebSocket;
+
+var WebSocketTransport = function()
 {
-    var _super = new org.cometd.Transport();
-    var _self = org.cometd.Transport.derive(_super);
+    var _super = new Transport();
+    var _self = Transport.derive(_super);
     var _cometd;
     // By default WebSocket is supported
     var _webSocketSupported = true;
@@ -50,7 +57,7 @@ org.cometd.WebSocketTransport = function()
         try
         {
             var protocol = _cometd.getConfiguration().protocol;
-            webSocket = protocol ? new org.cometd.WebSocket(url, protocol) : new org.cometd.WebSocket(url);
+            webSocket = protocol ? new _WebSocket(url, protocol) : new _WebSocket(url);
         }
         catch (x)
         {
@@ -151,7 +158,7 @@ org.cometd.WebSocketTransport = function()
 
     function _webSocketSend(webSocket, envelope, metaConnect)
     {
-        var json = org.cometd.JSON.toJSON(envelope.messages);
+        var json = _JSON.toJSON(envelope.messages);
 
         webSocket.send(json);
         this._debug('Transport', this.getType(), 'sent', envelope, 'metaConnect =', metaConnect);
@@ -284,7 +291,7 @@ org.cometd.WebSocketTransport = function()
             for (var key in _envelopes)
             {
                 var ids = key.split(',');
-                var index = org.cometd.Utils.inArray(id, ids);
+                var index = _Utils.inArray(id, ids);
                 if (index >= 0)
                 {
                     removed = true;
@@ -357,7 +364,7 @@ org.cometd.WebSocketTransport = function()
     _self.accept = function(version, crossDomain, url)
     {
         // Using !! to return a boolean (and not the WebSocket object).
-        return _webSocketSupported && !!org.cometd.WebSocket && _cometd.websocketEnabled !== false;
+        return _webSocketSupported && !!_WebSocket && _cometd.websocketEnabled !== false;
     };
 
     _self.send = function(envelope, metaConnect)
@@ -409,3 +416,5 @@ org.cometd.WebSocketTransport = function()
 
     return _self;
 };
+
+module.exports = WebSocketTransport;

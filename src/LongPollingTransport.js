@@ -1,7 +1,11 @@
-org.cometd.LongPollingTransport = function()
+var RequestTransport = require('./RequestTransport');
+var Transport = require('./Transport');
+var _JSON = require('./cometd-json');
+
+LongPollingTransport = function()
 {
-    var _super = new org.cometd.RequestTransport();
-    var _self = org.cometd.Transport.derive(_super);
+    var _super = new RequestTransport();
+    var _self = Transport.derive(_super);
     // By default, support cross domain
     var _supportsCrossDomain = true;
 
@@ -28,7 +32,7 @@ org.cometd.LongPollingTransport = function()
                 url: envelope.url,
                 sync: envelope.sync,
                 headers: this.getConfiguration().requestHeaders,
-                body: org.cometd.JSON.toJSON(envelope.messages),
+                body: _JSON.toJSON(envelope.messages),
                 onSuccess: function(response)
                 {
                     self._debug('Transport', self.getType(), 'received response', response);
@@ -109,3 +113,5 @@ org.cometd.LongPollingTransport = function()
 
     return _self;
 };
+
+module.exports = LongPollingTransport;

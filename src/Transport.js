@@ -1,7 +1,10 @@
+var Utils = require('./Utils');
+var _JSON = require('./cometd-json');
+
 /**
  * Base object with the common functionality for transports.
  */
-org.cometd.Transport = function()
+Transport = function()
 {
     var _type;
     var _cometd;
@@ -50,12 +53,12 @@ org.cometd.Transport = function()
 
     this.setTimeout = function(funktion, delay)
     {
-        return org.cometd.Utils.setTimeout(_cometd, funktion, delay);
+        return Utils.setTimeout(_cometd, funktion, delay);
     };
 
     this.clearTimeout = function(handle)
     {
-        org.cometd.Utils.clearTimeout(handle);
+        Utils.clearTimeout(handle);
     };
 
     /**
@@ -65,11 +68,11 @@ org.cometd.Transport = function()
      */
     this.convertToMessages = function (response)
     {
-        if (org.cometd.Utils.isString(response))
+        if (Utils.isString(response))
         {
             try
             {
-                return org.cometd.JSON.fromJSON(response);
+                return _JSON.fromJSON(response);
             }
             catch(x)
             {
@@ -77,7 +80,7 @@ org.cometd.Transport = function()
                 throw x;
             }
         }
-        if (org.cometd.Utils.isArray(response))
+        if (Utils.isArray(response))
         {
             return response;
         }
@@ -134,9 +137,11 @@ org.cometd.Transport = function()
     };
 };
 
-org.cometd.Transport.derive = function(baseObject)
+Transport.derive = function(baseObject)
 {
     function F() {}
     F.prototype = baseObject;
     return new F();
 };
+
+module.exports = Transport;

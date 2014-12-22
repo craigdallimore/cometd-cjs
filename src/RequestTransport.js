@@ -1,3 +1,6 @@
+var Utils = require('./Utils');
+var Transport = require('./Transport');
+
 /**
  * Base object with the common functionality for transports based on requests.
  * The key responsibility is to allow at most 2 outstanding requests to the server,
@@ -5,10 +8,10 @@
  * To achieve this, we have one reserved request for the long poll, and all other
  * requests are serialized one after the other.
  */
-org.cometd.RequestTransport = function()
+RequestTransport = function()
 {
-    var _super = new org.cometd.Transport();
-    var _self = org.cometd.Transport.derive(_super);
+    var _super = new Transport();
+    var _self = Transport.derive(_super);
     var _requestIds = 0;
     var _metaConnectRequest = null;
     var _requests = [];
@@ -104,7 +107,7 @@ org.cometd.RequestTransport = function()
 
     function _complete(request, success)
     {
-        var index = org.cometd.Utils.inArray(request, _requests);
+        var index = Utils.inArray(request, _requests);
         // The index can be negative if the request has been aborted
         if (index >= 0)
         {
@@ -295,3 +298,5 @@ org.cometd.RequestTransport = function()
 
     return _self;
 };
+
+module.exports = RequestTransport;

@@ -1,8 +1,6 @@
-var org = require('./cometd-namespace');
+var Utils = {};
 
-org.cometd.Utils = {};
-
-org.cometd.Utils.isString = function(value)
+Utils.isString = function(value)
 {
     if (value === undefined || value === null)
     {
@@ -11,7 +9,7 @@ org.cometd.Utils.isString = function(value)
     return typeof value === 'string' ||  value instanceof String;
 };
 
-org.cometd.Utils.isArray = function(value)
+Utils.isArray = function(value)
 {
     if (value === undefined || value === null)
     {
@@ -26,7 +24,7 @@ org.cometd.Utils.isArray = function(value)
  * @param array the array to check for the element presence
  * @return the index of the element, if present, or a negative index if the element is not present
  */
-org.cometd.Utils.inArray = function(element, array)
+Utils.inArray = function(element, array)
 {
     for (var i = 0; i < array.length; ++i)
     {
@@ -38,7 +36,7 @@ org.cometd.Utils.inArray = function(element, array)
     return -1;
 };
 
-org.cometd.Utils.setTimeout = function(cometd, funktion, delay)
+Utils.setTimeout = function(cometd, funktion, delay)
 {
     return window.setTimeout(function()
     {
@@ -54,7 +52,9 @@ org.cometd.Utils.setTimeout = function(cometd, funktion, delay)
     }, delay);
 };
 
-org.cometd.Utils.clearTimeout = function(timeoutHandle)
+Utils.clearTimeout = function(timeoutHandle)
 {
     window.clearTimeout(timeoutHandle);
 };
+
+module.exports = Utils;

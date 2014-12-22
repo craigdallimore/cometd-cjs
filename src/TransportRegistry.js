@@ -1,7 +1,7 @@
 /**
  * A registry for transports used by the CometD object.
  */
-org.cometd.TransportRegistry = function()
+var TransportRegistry = function()
 {
     var _types = [];
     var _transports = {};
@@ -114,3 +114,5 @@ org.cometd.TransportRegistry = function()
         }
     };
 };
+
+module.exports = TransportRegistry;

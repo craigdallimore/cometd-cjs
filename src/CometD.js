@@ -21,14 +21,15 @@
 // The only implied globals must be "dojo", "org" and "window", and check that there are no "unused" warnings
 // Failing to pass JSLint may result in shrinkers/minifiers to create an unusable file.
 
-var org = require('./cometd-namespace');
+var TransportRegistry = require('./TransportRegistry');
+var Utils = require('./Utils');
 
-org.cometd.CometD = function(name)
+var CometD = function(name)
 {
     var _cometd = this;
     var _name = name || 'default';
     var _crossDomain = false;
-    var _transports = new org.cometd.TransportRegistry();
+    var _transports = new TransportRegistry();
     var _transport;
     var _status = 'disconnected';
     var _messageId = 0;
@@ -139,7 +140,7 @@ org.cometd.CometD = function(name)
 
     function _isString(value)
     {
-        return org.cometd.Utils.isString(value);
+        return Utils.isString(value);
     }
 
     function _isFunction(value)
@@ -465,7 +466,7 @@ org.cometd.CometD = function(name)
     {
         if (_scheduledSend !== null)
         {
-            org.cometd.Utils.clearTimeout(_scheduledSend);
+            Utils.clearTimeout(_scheduledSend);
         }
         _scheduledSend = null;
     }
@@ -475,7 +476,7 @@ org.cometd.CometD = function(name)
         _cancelDelayedSend();
         var delay = _advice.interval + _backoff;
         _cometd._debug('Function scheduled in', delay, 'ms, interval =', _advice.interval, 'backoff =', _backoff, operation);
-        _scheduledSend = org.cometd.Utils.setTimeout(_cometd, operation, delay);
+        _scheduledSend = Utils.setTimeout(_cometd, operation, delay);
     }
 
     // Needed to break cyclic dependencies between function definitions
@@ -898,7 +899,7 @@ org.cometd.CometD = function(name)
             var timeout = context.timeout;
             if (timeout)
             {
-                org.cometd.Utils.clearTimeout(timeout);
+                Utils.clearTimeout(timeout);
             }
 
             var callback = context.callback;
@@ -1869,7 +1870,7 @@ org.cometd.CometD = function(name)
         };
         if (timeout > 0)
         {
-            context.timeout = org.cometd.Utils.setTimeout(_cometd, function()
+            context.timeout = Utils.setTimeout(_cometd, function()
             {
                 _cometd._debug('Timing out remote call', bayeuxMessage, 'after', timeout, 'ms');
                 _failMessage({
@@ -2108,6 +2109,6 @@ org.cometd.CometD = function(name)
         return this._mixin(true, {}, _advice);
     };
 
-    // Use an alias to be less dependent on browser's quirks.
-    org.cometd.WebSocket = window.WebSocket;
 };
+
+module.exports = CometD;

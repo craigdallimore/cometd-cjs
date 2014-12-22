@@ -1,7 +1,11 @@
-org.cometd.CallbackPollingTransport = function()
+var RequestTransport = require('./RequestTransport');
+var Transport = require('./Transport');
+var _JSON = require('./cometd-json');
+
+var CallbackPollingTransport = function()
 {
-    var _super = new org.cometd.RequestTransport();
-    var _self = org.cometd.Transport.derive(_super);
+    var _super = new RequestTransport();
+    var _self = Transport.derive(_super);
     var _maxLength = 2000;
 
     _self.accept = function(version, crossDomain, url)
@@ -36,7 +40,7 @@ org.cometd.CallbackPollingTransport = function()
         {
             // Encode the messages because all brackets, quotes, commas, colons, etc
             // present in the JSON will be URL encoded, taking many more characters
-            var json = org.cometd.JSON.toJSON(envelope.messages.slice(start, start + length));
+            var json = _JSON.toJSON(envelope.messages.slice(start, start + length));
             var urlLength = envelope.url.length + encodeURI(json).length;
 
             // Let's stay on the safe side and use 2000 instead of 2083
@@ -98,7 +102,7 @@ org.cometd.CallbackPollingTransport = function()
                 url: envelopeToSend.url,
                 sync: envelopeToSend.sync,
                 headers: this.getConfiguration().requestHeaders,
-                body: org.cometd.JSON.toJSON(envelopeToSend.messages),
+                body: _JSON.toJSON(envelopeToSend.messages),
                 onSuccess: function(responses)
                 {
                     var success = false;
@@ -164,3 +168,5 @@ org.cometd.CallbackPollingTransport = function()
 
     return _self;
 };
+
+module.exports = CallbackPollingTransport;
