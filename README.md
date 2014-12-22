@@ -1,120 +1,69 @@
 # CometD library for CJS.
 
-NOTE: This is not recommended to be used in production yet.
-
 This is little more than taking the [CometdD JavaScript library](https://github.com/cometd/cometd) and making each component available via [module.exports](http://nodejs.org/docs/latest/api/modules.html#modules_module_exports).
 
-The `org.cometd` namespace is not present.
+The `org.cometd` namespace is not needed. Neither is jQuery!
+
+However you need to set up the XHR yourself.
+
+This is based on the CometD 3.0.3 JavaScript library.
 
 ## To get the main CometD constructor and an instance:
 
 ```javascript
-var CometD = require('cometd').CometD;
-var cometd = new CometD(<optional name>);
+let { CometD, LongPollingTransport, Transport } = require('cometd');
+
+function LongPoller() {
+
+  let transport = Transport.derive(new LongPollingTransport());
+
+  transport.xhrSend = function(packet) => {
+
+    let xhr  = new XMLHttpRequest();
+    let data = JSON.parse(packet.body);
+
+    xhr.open('post', packet.url);
+
+    xhr.setRequestHeader('Content-Type', 'application/json;charset=UTF-8');
+
+    xhr.onreadystatechange = () => {
+
+      if (xhr.readyState === 4) {
+
+        if (xhr.status === 200) {
+
+          packet.onSuccess(xhr.responseText);
+
+        } else {
+
+          packet.onError(xhr.statusText, xhr.response);
+
+        }
+
+      }
+
+    };
+
+    xhr.send(JSON.stringify(data));
+
+  };
+
+  return transport;
+
+}
+
+let cometd = new CometD();
+
+cometd.registerTransport('long-polling', new LongPoller());
+
+let cometd = new CometD(<optional name>);
 ```
 
-TODO:
-- JSON
-- replace jquery/dojo:
- - override LongPollingTransport
- - override CallbackPollingTransport
- - register transports in order
-  - Websocket
-  - LongPolling
-  - Callbackpolling
+## References
 
-- Keywords
+[cometd at github](https://github.com/cometd/cometd)
+[cometd JavaScript library docs](http://docs.cometd.org/3/reference/#_javascript)
 
-[webapp](https://github.com/cometd/cometd/tree/master/cometd-javascript/common/src/main/webapp/org/cometd)
-- find out what these extensions are for:
+## Also see
 
- - Ack
- - Reload
- - Timestamp
- - TimeSync
-
-
-## Rough scrappy notes, please ignore
-
-/org/cometd/cometd-json.js
-exports:
-org.cometd.JSON
-
---------------------------
-/org/cometd/Utils.js
-
-exports:
-org.cometd.Utils
-
---------------------------
-/org/cometd/TransportRegistry.js
-
-exports:
-org.cometd.TransportRegistry
-
---------------------------
-/org/cometd/Transport.js
-
-imports:
-org.cometd.Utils
-org.cometd.JSON
-
-exports
-org.cometd.Transport
-org.cometd.Transport.derive
-
---------------------------
-/org/cometd/RequestTransport.js
-
-imports:
-org.cometd.Utils
-org.cometd.Transport
-org.cometd.Transport.derive
-
-exports:
-org.cometd.RequestTransport
-
---------------------------
-/org/cometd/LongPollingTransport.js
-
-imports:
-org.cometd.RequestTransport
-org.cometd.Transport.derive
-org.cometd.JSON
-
-exports:
-org.cometd.LongPollingTransport
-
---------------------------
-/org/cometd/CallbackPollingTransport.js
-
-imports:
-org.cometd.RequestTransport
-org.cometd.Transport.derive
-org.cometd.JSON
-
-exports:
-org.cometd.CallbackPollingTransport
-
---------------------------
-/org/cometd/WebSocketTransport.js
-
-imports:
-org.cometd.Transport
-org.cometd.Transport.derive
-org.cometd.JSON
-org.cometd.Utils
-
-exports:
-org.cometd.WebSocketTransport
-
-
---------------------------
-/org/cometd/CometD.js
-
-imports:
-org.cometd.TransportRegistry
-org.cometd.Utils
-
-exports:
-org/cometd.CometD
+[cometd-jquery](https://github.com/wilmoore/cometd-jquery)

@@ -4,5 +4,10 @@
   "description": "Cometd for cjs, without jQuery or dojo",
   "main": "index.js",
   "author": "craigdallimore",
-  "license": "See https://github.com/cometd/cometd/tree/master/LICENSES"
+  "license": "See https://github.com/cometd/cometd/tree/master/LICENSES",
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/craigdallimore/cometd-cjs"
+  },
+  "keywords": [ "cometd", "bayeux", "websockets", "long-polling" ]
 }
