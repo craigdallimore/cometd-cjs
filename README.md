@@ -55,8 +55,6 @@ function LongPoller() {
 let cometd = new CometD();
 
 cometd.registerTransport('long-polling', new LongPoller());
-
-let cometd = new CometD(<optional name>);
 ```
 
 ## References
