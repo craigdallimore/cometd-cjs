@@ -53,11 +53,10 @@ var WebSocketTransport = function()
         var url = _cometd.getURL().replace(/^http/, 'ws');
         this._debug('Transport', this.getType(), 'connecting to URL', url);
 
-        var webSocket;
         try
         {
             var protocol = _cometd.getConfiguration().protocol;
-            webSocket = protocol ? new _WebSocket(url, protocol) : new _WebSocket(url);
+            var webSocket = protocol ? new _WebSocket(url, protocol) : new _WebSocket(url);
         }
         catch (x)
         {
@@ -291,7 +290,7 @@ var WebSocketTransport = function()
             for (var key in _envelopes)
             {
                 var ids = key.split(',');
-                var index = _Utils.inArray(id, ids);
+                var index = Utils.inArray(id, ids);
                 if (index >= 0)
                 {
                     removed = true;

@@ -152,21 +152,6 @@ var CometD = function(name)
         return typeof value === 'function';
     }
 
-    function _zeroPad(value, length)
-    {
-        var result = '';
-        while (--length > 0)
-        {
-            if (value >= Math.pow(10, length))
-            {
-                break;
-            }
-            result += '0';
-        }
-        result += value;
-        return result;
-    }
-
     function _log(level, args)
     {
         if (window.console)
@@ -174,9 +159,6 @@ var CometD = function(name)
             var logger = window.console[level];
             if (_isFunction(logger))
             {
-                var now = new Date();
-                [].splice.call(args, 0, 0, _zeroPad(now.getHours(), 2) + ':' + _zeroPad(now.getMinutes(), 2) + ':' +
-                        _zeroPad(now.getSeconds(), 2) + '.' + _zeroPad(now.getMilliseconds(), 3));
                 logger.apply(window.console, args);
             }
         }
@@ -506,7 +488,7 @@ var CometD = function(name)
                 message.clientId = _clientId;
             }
 
-            var callback;
+            var callback = undefined;
             if (_isFunction(message._callback))
             {
                 callback = message._callback;
@@ -624,7 +606,6 @@ var CometD = function(name)
     function _startBatch()
     {
         ++_batch;
-        _cometd._debug('Starting batch, depth', _batch);
     }
 
     function _flushBatch()
@@ -646,7 +627,6 @@ var CometD = function(name)
     function _endBatch()
     {
         --_batch;
-        _cometd._debug('Ending batch, depth', _batch);
         if (_batch < 0)
         {
             throw 'Calls to startBatch() and endBatch() are not paired';
