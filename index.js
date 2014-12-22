@@ -19,7 +19,7 @@ require('./src/cometd-header');
 module.exports = {
   CometD                   : require('./src/CometD'),
   Transport                : require('./src/Transport'),
-  LongPollingtransport     : require('./src/LongPollingTransport'),
+  LongPollingTransport     : require('./src/LongPollingTransport'),
   CallbackPollingTransport : require('./src/CallbackPollingTransport'),
   WebSocketTransport       : require('./src/WebSocketTransport'),
   AckExtension             : require('./src/extensions/AckExtension'),
