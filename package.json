@@ -1,6 +1,6 @@
 {
   "name": "cometd-cjs",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "Cometd for cjs, without jQuery or dojo",
   "main": "index.js",
   "author": "craigdallimore",
