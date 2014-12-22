@@ -21,5 +21,9 @@ module.exports = {
   Transport                : require('./src/Transport'),
   LongPollingtransport     : require('./src/LongPollingTransport'),
   CallbackPollingTransport : require('./src/CallbackPollingTransport'),
-  WebSocketTransport       : require('./src/WebSocketTransport')
+  WebSocketTransport       : require('./src/WebSocketTransport'),
+  AckExtension             : require('./src/extensions/AckExtension'),
+  ReloadExtension          : require('./src/extensions/ReloadExtension'),
+  TimeStampExtension       : require('./src/extensions/TimeStampExtension'),
+  TimeSyncExtension        : require('./src/extensions/TimeSyncExtension')
 };
