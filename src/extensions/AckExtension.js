@@ -30,7 +30,7 @@ function bind(org_cometd)
      * Messages are not acknowledged one by one, but instead a group of messages is
      * acknowledged when long poll returns.
      */
-    org_cometd.AckExtension = function()
+    return org_cometd.AckExtension = function()
     {
         var _cometd;
         var _serverSupportsAcks = false;
