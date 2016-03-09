@@ -8,7 +8,7 @@ var Transport = require('./Transport');
  * To achieve this, we have one reserved request for the long poll, and all other
  * requests are serialized one after the other.
  */
-RequestTransport = function()
+var RequestTransport = function()
 {
     var _super = new Transport();
     var _self = Transport.derive(_super);
