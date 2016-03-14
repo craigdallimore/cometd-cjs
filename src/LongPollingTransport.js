@@ -2,7 +2,7 @@ var RequestTransport = require('./RequestTransport');
 var Transport = require('./Transport');
 var _JSON = require('./cometd-json');
 
-LongPollingTransport = function()
+var LongPollingTransport = function()
 {
     var _super = new RequestTransport();
     var _self = Transport.derive(_super);

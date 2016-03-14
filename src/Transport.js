@@ -4,7 +4,7 @@ var _JSON = require('./cometd-json');
 /**
  * Base object with the common functionality for transports.
  */
-Transport = function()
+var Transport = function()
 {
     var _type;
     var _cometd;
