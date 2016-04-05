@@ -20,16 +20,13 @@
 // Be very careful in not changing the function order and pass this file every time through JSLint (http://jslint.com)
 // The only implied globals must be "dojo", "org" and "window", and check that there are no "unused" warnings
 // Failing to pass JSLint may result in shrinkers/minifiers to create an unusable file.
+var org = require('./org');
 
-var TransportRegistry = require('./TransportRegistry');
-var Utils = require('./Utils');
-
-var CometD = function(name)
-{
+org.cometd.CometD = function(name) {
     var _cometd = this;
     var _name = name || 'default';
     var _crossDomain = false;
-    var _transports = new TransportRegistry();
+    var _transports = new org.cometd.TransportRegistry();
     var _transport;
     var _status = 'disconnected';
     var _messageId = 0;
@@ -48,6 +45,8 @@ var CometD = function(name)
     var _remoteCalls = {};
     var _reestablish = false;
     var _connected = false;
+    var _unconnectTime = 0;
+    var _handshakeMessages = 0;
     var _config = {
         protocol: null,
         stickyReconnect: true,
@@ -61,21 +60,20 @@ var CometD = function(name)
         requestHeaders: {},
         appendMessageTypeToURL: true,
         autoBatch: false,
+        urls: {},
+        maxURILength: 2000,
         advice: {
             timeout: 60000,
             interval: 0,
-            reconnect: 'retry'
+            reconnect: undefined,
+            maxInterval: 0
         }
     };
 
-    function _fieldValue(object, name)
-    {
-        try
-        {
+    function _fieldValue(object, name) {
+        try {
             return object[name];
-        }
-        catch (x)
-        {
+        } catch (x) {
             return undefined;
         }
     }
@@ -86,51 +84,41 @@ var CometD = function(name)
      * @param target the target object
      * @param objects the objects whose properties are copied into the target
      */
-    this._mixin = function(deep, target, objects)
-    {
+    this._mixin = function(deep, target, objects) {
         var result = target || {};
 
         // Skip first 2 parameters (deep and target), and loop over the others
-        for (var i = 2; i < arguments.length; ++i)
-        {
+        for (var i = 2; i < arguments.length; ++i) {
             var object = arguments[i];
 
-            if (object === undefined || object === null)
-            {
+            if (object === undefined || object === null) {
                 continue;
             }
 
-            for (var propName in object)
-            {
-                var prop = _fieldValue(object, propName);
-                var targ = _fieldValue(result, propName);
+            for (var propName in object) {
+                if (object.hasOwnProperty(propName)) {
+                    var prop = _fieldValue(object, propName);
+                    var targ = _fieldValue(result, propName);
 
-                // Avoid infinite loops
-                if (prop === target)
-                {
-                    continue;
-                }
-                // Do not mixin undefined values
-                if (prop === undefined)
-                {
-                    continue;
-                }
+                    // Avoid infinite loops
+                    if (prop === target) {
+                        continue;
+                    }
+                    // Do not mixin undefined values
+                    if (prop === undefined) {
+                        continue;
+                    }
 
-                if (deep && typeof prop === 'object' && prop !== null)
-                {
-                    if (prop instanceof Array)
-                    {
-                        result[propName] = this._mixin(deep, targ instanceof Array ? targ : [], prop);
+                    if (deep && typeof prop === 'object' && prop !== null) {
+                        if (prop instanceof Array) {
+                            result[propName] = this._mixin(deep, targ instanceof Array ? targ : [], prop);
+                        } else {
+                            var source = typeof targ === 'object' && !(targ instanceof Array) ? targ : {};
+                            result[propName] = this._mixin(deep, source, prop);
+                        }
+                    } else {
+                        result[propName] = prop;
                     }
-                    else
-                    {
-                        var source = typeof targ === 'object' && !(targ instanceof Array) ? targ : {};
-                        result[propName] = this._mixin(deep, source, prop);
-                    }
-                }
-                else
-                {
-                    result[propName] = prop;
                 }
             }
         }
@@ -138,52 +126,69 @@ var CometD = function(name)
         return result;
     };
 
-    function _isString(value)
-    {
-        return Utils.isString(value);
+    function _isString(value) {
+        return org.cometd.Utils.isString(value);
     }
 
-    function _isFunction(value)
-    {
-        if (value === undefined || value === null)
-        {
+    function _isFunction(value) {
+        if (value === undefined || value === null) {
             return false;
         }
         return typeof value === 'function';
     }
 
-    function _log(level, args)
-    {
-        if (window.console)
-        {
+    function _zeroPad(value, length) {
+        var result = '';
+        while (--length > 0) {
+            if (value >= Math.pow(10, length)) {
+                break;
+            }
+            result += '0';
+        }
+        result += value;
+        return result;
+    }
+
+    function _log(level, args) {
+        if (window.console) {
             var logger = window.console[level];
-            if (_isFunction(logger))
-            {
+            if (_isFunction(logger)) {
+                var now = new Date();
+                [].splice.call(args, 0, 0, _zeroPad(now.getHours(), 2) + ':' + _zeroPad(now.getMinutes(), 2) + ':' +
+                        _zeroPad(now.getSeconds(), 2) + '.' + _zeroPad(now.getMilliseconds(), 3));
                 logger.apply(window.console, args);
             }
         }
     }
 
-    this._warn = function()
-    {
+    this._warn = function() {
         _log('warn', arguments);
     };
 
-    this._info = function()
-    {
-        if (_config.logLevel !== 'warn')
-        {
+    this._info = function() {
+        if (_config.logLevel !== 'warn') {
             _log('info', arguments);
         }
     };
 
-    this._debug = function()
-    {
-        if (_config.logLevel === 'debug')
-        {
+    this._debug = function() {
+        if (_config.logLevel === 'debug') {
             _log('debug', arguments);
         }
     };
+
+    function _splitURL(url) {
+        // [1] = protocol://,
+        // [2] = host:port,
+        // [3] = host,
+        // [4] = IPv6_host,
+        // [5] = IPv4_host,
+        // [6] = :port,
+        // [7] = port,
+        // [8] = uri,
+        // [9] = rest (query / fragment)
+        return /(^https?:\/\/)?(((\[[^\]]+\])|([^:\/\?#]+))(:(\d+))?)?([^\?#]*)(.*)?/.exec(url);
+    }
 
     /**
      * Returns whether the given hostAndPort is cross domain.
@@ -194,58 +199,46 @@ var CometD = function(name)
      * @param hostAndPort the host and port in format host:port
      * @return whether the given hostAndPort is cross domain
      */
-    this._isCrossDomain = function(hostAndPort)
-    {
+    this._isCrossDomain = function(hostAndPort) {
         return hostAndPort && hostAndPort !== window.location.host;
     };
 
-    function _configure(configuration)
-    {
+    function _configure(configuration) {
         _cometd._debug('Configuring cometd object with', configuration);
         // Support old style param, where only the Bayeux server URL was passed
-        if (_isString(configuration))
-        {
+        if (_isString(configuration)) {
             configuration = { url: configuration };
         }
-        if (!configuration)
-        {
+        if (!configuration) {
             configuration = {};
         }
 
         _config = _cometd._mixin(false, _config, configuration);
 
         var url = _cometd.getURL();
-        if (!url)
-        {
+        if (!url) {
             throw 'Missing required configuration parameter \'url\' specifying the Bayeux server URL';
         }
 
-        // Check if we're cross domain
-        // [1] = protocol://, [2] = host:port, [3] = host, [4] = IPv6_host, [5] = IPv4_host, [6] = :port, [7] = port, [8] = uri, [9] = rest
-        var urlParts = /(^https?:\/\/)?(((\[[^\]]+\])|([^:\/\?#]+))(:(\d+))?)?([^\?#]*)(.*)?/.exec(url);
+        // Check if we're cross domain.
+        var urlParts = _splitURL(url);
         var hostAndPort = urlParts[2];
         var uri = urlParts[8];
         var afterURI = urlParts[9];
         _crossDomain = _cometd._isCrossDomain(hostAndPort);
 
         // Check if appending extra path is supported
-        if (_config.appendMessageTypeToURL)
-        {
-            if (afterURI !== undefined && afterURI.length > 0)
-            {
+        if (_config.appendMessageTypeToURL) {
+            if (afterURI !== undefined && afterURI.length > 0) {
                 _cometd._info('Appending message type to URI ' + uri + afterURI + ' is not supported, disabling \'appendMessageTypeToURL\' configuration');
                 _config.appendMessageTypeToURL = false;
-            }
-            else
-            {
+            } else {
                 var uriSegments = uri.split('/');
                 var lastSegmentIndex = uriSegments.length - 1;
-                if (uri.match(/\/$/))
-                {
+                if (uri.match(/\/$/)) {
                     lastSegmentIndex -= 1;
                 }
-                if (uriSegments[lastSegmentIndex].indexOf('.') >= 0)
-                {
+                if (uriSegments[lastSegmentIndex].indexOf('.') >= 0) {
                     // Very likely the CometD servlet's URL pattern is mapped to an extension, such as *.cometd
                     // It will be difficult to add the extra path in this case
                     _cometd._info('Appending message type to URI ' + uri + ' is not supported, disabling \'appendMessageTypeToURL\' configuration');
@@ -255,105 +248,80 @@ var CometD = function(name)
         }
     }
 
-    function _removeListener(subscription)
-    {
-        if (subscription)
-        {
+    function _removeListener(subscription) {
+        if (subscription) {
             var subscriptions = _listeners[subscription.channel];
-            if (subscriptions && subscriptions[subscription.id])
-            {
+            if (subscriptions && subscriptions[subscription.id]) {
                 delete subscriptions[subscription.id];
                 _cometd._debug('Removed', subscription.listener ? 'listener' : 'subscription', subscription);
             }
         }
     }
 
-    function _removeSubscription(subscription)
-    {
-        if (subscription && !subscription.listener)
-        {
+    function _removeSubscription(subscription) {
+        if (subscription && !subscription.listener) {
             _removeListener(subscription);
         }
     }
 
-    function _clearSubscriptions()
-    {
-        for (var channel in _listeners)
-        {
-            var subscriptions = _listeners[channel];
-            if (subscriptions)
-            {
-                for (var i = 0; i < subscriptions.length; ++i)
-                {
-                    _removeSubscription(subscriptions[i]);
+    function _clearSubscriptions() {
+        for (var channel in _listeners) {
+            if (_listeners.hasOwnProperty(channel)) {
+                var subscriptions = _listeners[channel];
+                if (subscriptions) {
+                    for (var i = 0; i < subscriptions.length; ++i) {
+                        _removeSubscription(subscriptions[i]);
+                    }
                 }
             }
         }
     }
 
-    function _setStatus(newStatus)
-    {
-        if (_status !== newStatus)
-        {
+    function _setStatus(newStatus) {
+        if (_status !== newStatus) {
             _cometd._debug('Status', _status, '->', newStatus);
             _status = newStatus;
         }
     }
 
-    function _isDisconnected()
-    {
+    function _isDisconnected() {
         return _status === 'disconnecting' || _status === 'disconnected';
     }
 
-    function _nextMessageId()
-    {
+    function _nextMessageId() {
         var result = ++_messageId;
         return '' + result;
     }
 
-    function _applyExtension(scope, callback, name, message, outgoing)
-    {
-        try
-        {
+    function _applyExtension(scope, callback, name, message, outgoing) {
+        try {
             return callback.call(scope, message);
-        }
-        catch (x)
-        {
+        } catch (x) {
             var handler = _cometd.onExtensionException;
-            if (_isFunction(handler))
-            {
+            if (_isFunction(handler)) {
                 _cometd._debug('Invoking extension exception handler', name, x);
-                try
-                {
+                try {
                     handler.call(_cometd, x, name, outgoing, message);
-                }
-                catch(xx)
-                {
+                } catch (xx) {
                     _cometd._info('Exception during execution of extension exception handler', name, xx);
                 }
-            }
-            else
-            {
+            } else {
                 _cometd._info('Exception during execution of extension', name, x);
             }
             return message;
         }
     }
 
-    function _applyIncomingExtensions(message)
-    {
-        for (var i = 0; i < _extensions.length; ++i)
-        {
-            if (message === undefined || message === null)
-            {
+    function _applyIncomingExtensions(message) {
+        for (var i = 0; i < _extensions.length; ++i) {
+            if (message === undefined || message === null) {
                 break;
             }
 
             var index = _config.reverseIncomingExtensions ? _extensions.length - 1 - i : i;
             var extension = _extensions[index];
             var callback = extension.extension.incoming;
-            if (_isFunction(callback))
-            {
+            if (_isFunction(callback)) {
                 var result = _applyExtension(extension.extension, callback, extension.name, message, false);
                 message = result === undefined ? message : result;
             }
@@ -361,19 +329,15 @@ var CometD = function(name)
         return message;
     }
 
-    function _applyOutgoingExtensions(message)
-    {
-        for (var i = 0; i < _extensions.length; ++i)
-        {
-            if (message === undefined || message === null)
-            {
+    function _applyOutgoingExtensions(message) {
+        for (var i = 0; i < _extensions.length; ++i) {
+            if (message === undefined || message === null) {
                 break;
             }
 
             var extension = _extensions[i];
             var callback = extension.extension.outgoing;
-            if (_isFunction(callback))
-            {
+            if (_isFunction(callback)) {
                 var result = _applyExtension(extension.extension, callback, extension.name, message, true);
                 message = result === undefined ? message : result;
             }
@@ -381,38 +345,25 @@ var CometD = function(name)
         return message;
     }
 
-    function _notify(channel, message)
-    {
+    function _notify(channel, message) {
         var subscriptions = _listeners[channel];
-        if (subscriptions && subscriptions.length > 0)
-        {
-            for (var i = 0; i < subscriptions.length; ++i)
-            {
+        if (subscriptions && subscriptions.length > 0) {
+            for (var i = 0; i < subscriptions.length; ++i) {
                 var subscription = subscriptions[i];
                 // Subscriptions may come and go, so the array may have 'holes'
-                if (subscription)
-                {
-                    try
-                    {
+                if (subscription) {
+                    try {
                         subscription.callback.call(subscription.scope, message);
-                    }
-                    catch (x)
-                    {
+                    } catch (x) {
                         var handler = _cometd.onListenerException;
-                        if (_isFunction(handler))
-                        {
+                        if (_isFunction(handler)) {
                             _cometd._debug('Invoking listener exception handler', subscription, x);
-                            try
-                            {
+                            try {
                                 handler.call(_cometd, x, subscription, subscription.listener, message);
-                            }
-                            catch (xx)
-                            {
+                            } catch (xx) {
                                 _cometd._info('Exception during execution of listener exception handler', subscription, xx);
                             }
-                        }
-                        else
-                        {
+                        } else {
                             _cometd._info('Exception during execution of listener', subscription, message, x);
                         }
                     }
@@ -421,21 +372,18 @@ var CometD = function(name)
         }
     }
 
-    function _notifyListeners(channel, message)
-    {
+    function _notifyListeners(channel, message) {
         // Notify direct listeners
         _notify(channel, message);
 
         // Notify the globbing listeners
         var channelParts = channel.split('/');
         var last = channelParts.length - 1;
-        for (var i = last; i > 0; --i)
-        {
+        for (var i = last; i > 0; --i) {
             var channelPart = channelParts.slice(0, i).join('/') + '/*';
             // We don't want to notify /foo/* if the channel is /foo/bar/baz,
             // so we stop at the first non recursive globbing
-            if (i === last)
-            {
+            if (i === last) {
                 _notify(channelPart, message);
             }
             // Add the recursive globber and notify
@@ -444,21 +392,18 @@ var CometD = function(name)
         }
     }
 
-    function _cancelDelayedSend()
-    {
-        if (_scheduledSend !== null)
-        {
-            Utils.clearTimeout(_scheduledSend);
+    function _cancelDelayedSend() {
+        if (_scheduledSend !== null) {
+            org.cometd.Utils.clearTimeout(_scheduledSend);
         }
         _scheduledSend = null;
     }
 
-    function _delayedSend(operation)
-    {
+    function _delayedSend(operation, delay) {
         _cancelDelayedSend();
-        var delay = _advice.interval + _backoff;
-        _cometd._debug('Function scheduled in', delay, 'ms, interval =', _advice.interval, 'backoff =', _backoff, operation);
-        _scheduledSend = Utils.setTimeout(_cometd, operation, delay);
+        var time = _advice.interval + delay;
+        _cometd._debug('Function scheduled in', time, 'ms, interval =', _advice.interval, 'backoff =', _backoff, operation);
+        _scheduledSend = org.cometd.Utils.setTimeout(_cometd, operation, time);
     }
 
     // Needed to break cyclic dependencies between function definitions
@@ -472,62 +417,41 @@ var CometD = function(name)
      * @param metaConnect true if this send is on /meta/connect
      * @param extraPath an extra path to append to the Bayeux server URL
      */
-    function _send(sync, messages, metaConnect, extraPath)
-    {
+    function _send(sync, messages, metaConnect, extraPath) {
         // We must be sure that the messages have a clientId.
         // This is not guaranteed since the handshake may take time to return
         // (and hence the clientId is not known yet) and the application
         // may create other messages.
-        for (var i = 0; i < messages.length; ++i)
-        {
+        for (var i = 0; i < messages.length; ++i) {
             var message = messages[i];
             var messageId = message.id;
 
-            if (_clientId)
-            {
+            if (_clientId) {
                 message.clientId = _clientId;
             }
 
-            var callback = undefined;
-            if (_isFunction(message._callback))
-            {
-                callback = message._callback;
-                // Remove the callback before calling the extensions.
-                delete message._callback;
-            }
-
             message = _applyOutgoingExtensions(message);
-            if (message !== undefined && message !== null)
-            {
+            if (message !== undefined && message !== null) {
                 // Extensions may have modified the message id, but we need to own it.
                 message.id = messageId;
                 messages[i] = message;
-                if (callback !== undefined)
-                {
-                    _callbacks[messageId] = callback;
-                }
-            }
-            else
-            {
+            } else {
+                delete _callbacks[messageId];
                 messages.splice(i--, 1);
             }
         }
 
-        if (messages.length === 0)
-        {
+        if (messages.length === 0) {
             return;
         }
 
         var url = _cometd.getURL();
-        if (_config.appendMessageTypeToURL)
-        {
+        if (_config.appendMessageTypeToURL) {
             // If url does not end with '/', then append it
-            if (!url.match(/\/$/))
-            {
+            if (!url.match(/\/$/)) {
                 url = url + '/';
             }
-            if (extraPath)
-            {
+            if (extraPath) {
                 url = url + extraPath;
             }
         }
@@ -536,27 +460,19 @@ var CometD = function(name)
             url: url,
             sync: sync,
             messages: messages,
-            onSuccess: function(rcvdMessages)
-            {
-                try
-                {
+            onSuccess: function(rcvdMessages) {
+                try {
                     _handleMessages.call(_cometd, rcvdMessages);
-                }
-                catch (x)
-                {
+                } catch (x) {
                     _cometd._info('Exception during handling of messages', x);
                 }
             },
-            onFailure: function(conduit, messages, failure)
-            {
-                try
-                {
+            onFailure: function(conduit, messages, failure) {
+                try {
                     var transport = _cometd.getTransport();
                     failure.connectionType = transport ? transport.getType() : "unknown";
                     _handleFailure.call(_cometd, conduit, messages, failure);
-                }
-                catch (x)
-                {
+                } catch (x) {
                     _cometd._info('Exception during handling of failure', x);
                 }
             }
@@ -565,14 +481,10 @@ var CometD = function(name)
         _transport.send(envelope, metaConnect);
     }
 
-    function _queueSend(message)
-    {
-        if (_batch > 0 || _internalBatch === true)
-        {
+    function _queueSend(message) {
+        if (_batch > 0 || _internalBatch === true) {
             _messageQueue.push(message);
-        }
-        else
-        {
+        } else {
             _send(false, [message], false);
         }
     }
@@ -586,34 +498,30 @@ var CometD = function(name)
      */
     this.send = _queueSend;
 
-    function _resetBackoff()
-    {
+    function _resetBackoff() {
         _backoff = 0;
     }
 
-    function _increaseBackoff()
-    {
-        if (_backoff < _config.maxBackoff)
-        {
+    function _increaseBackoff() {
+        if (_backoff < _config.maxBackoff) {
             _backoff += _config.backoffIncrement;
         }
+        return _backoff;
     }
 
     /**
      * Starts a the batch of messages to be sent in a single request.
      * @see #_endBatch(sendMessages)
      */
-    function _startBatch()
-    {
+    function _startBatch() {
         ++_batch;
+        _cometd._debug('Starting batch, depth', _batch);
     }
 
-    function _flushBatch()
-    {
+    function _flushBatch() {
         var messages = _messageQueue;
         _messageQueue = [];
-        if (messages.length > 0)
-        {
+        if (messages.length > 0) {
             _send(false, messages, false);
         }
     }
@@ -624,16 +532,14 @@ var CometD = function(name)
      * on the given argument.
      * @see #_startBatch()
      */
-    function _endBatch()
-    {
+    function _endBatch() {
         --_batch;
-        if (_batch < 0)
-        {
+        _cometd._debug('Ending batch, depth', _batch);
+        if (_batch < 0) {
             throw 'Calls to startBatch() and endBatch() are not paired';
         }
 
-        if (_batch === 0 && !_isDisconnected() && !_internalBatch)
-        {
+        if (_batch === 0 && !_isDisconnected() && !_internalBatch) {
             _flushBatch();
         }
     }
@@ -641,10 +547,8 @@ var CometD = function(name)
     /**
      * Sends the connect message
      */
-    function _connect()
-    {
-        if (!_isDisconnected())
-        {
+    function _connect() {
+        if (!_isDisconnected()) {
             var bayeuxMessage = {
                 id: _nextMessageId(),
                 channel: '/meta/connect',
@@ -655,8 +559,7 @@ var CometD = function(name)
             // we want the next successful connect to return immediately
             // instead of being held by the server, so that connect listeners
             // can be notified that the connection has been re-established
-            if (!_connected)
-            {
+            if (!_connected) {
                 bayeuxMessage.advice = { timeout: 0 };
             }
 
@@ -667,29 +570,23 @@ var CometD = function(name)
         }
     }
 
-    function _delayedConnect()
-    {
+    function _delayedConnect(delay) {
         _setStatus('connecting');
-        _delayedSend(function()
-        {
+        _delayedSend(function() {
             _connect();
-        });
+        }, delay);
     }
 
-    function _updateAdvice(newAdvice)
-    {
-        if (newAdvice)
-        {
+    function _updateAdvice(newAdvice) {
+        if (newAdvice) {
             _advice = _cometd._mixin(false, {}, _config.advice, newAdvice);
             _cometd._debug('New advice', _advice);
         }
     }
 
-    function _disconnect(abort)
-    {
+    function _disconnect(abort) {
         _cancelDelayedSend();
-        if (abort && _transport)
-        {
+        if (abort && _transport) {
             _transport.abort();
         }
         _clientId = null;
@@ -699,8 +596,7 @@ var CometD = function(name)
         _transport = null;
 
         // Fail any existing queued message
-        if (_messageQueue.length > 0)
-        {
+        if (_messageQueue.length > 0) {
             var messages = _messageQueue;
             _messageQueue = [];
             _handleFailure.call(_cometd, undefined, messages, {
@@ -709,18 +605,13 @@ var CometD = function(name)
         }
     }
 
-    function _notifyTransportFailure(oldTransport, newTransport, failure)
-    {
+    function _notifyTransportException(oldTransport, newTransport, failure) {
         var handler = _cometd.onTransportException;
-        if (_isFunction(handler))
-        {
+        if (_isFunction(handler)) {
             _cometd._debug('Invoking transport exception handler', oldTransport, newTransport, failure);
-            try
-            {
+            try {
                 handler.call(_cometd, failure, oldTransport, newTransport);
-            }
-            catch (x)
-            {
+            } catch (x) {
                 _cometd._info('Exception during execution of transport exception handler', x);
             }
         }
@@ -729,10 +620,8 @@ var CometD = function(name)
     /**
      * Sends the initial handshake message
      */
-    function _handshake(handshakeProps, handshakeCallback)
-    {
-        if (_isFunction(handshakeProps))
-        {
+    function _handshake(handshakeProps, handshakeCallback) {
+        if (_isFunction(handshakeProps)) {
             handshakeCallback = handshakeProps;
             handshakeProps = undefined;
         }
@@ -742,18 +631,9 @@ var CometD = function(name)
         _clearSubscriptions();
 
         // Reset the transports if we're not retrying the handshake
-        if (_isDisconnected())
-        {
-            _transports.reset();
+        if (_isDisconnected()) {
+            _transports.reset(true);
             _updateAdvice(_config.advice);
-        }
-        else
-        {
-            // We are retrying the handshake, either because another handshake failed
-            // and we're backing off, or because the server timed us out and asks us to
-            // re-handshake: in both cases, make sure that if the handshake succeeds
-            // the next action is a connect.
-            _updateAdvice(_cometd._mixin(false, _advice, {reconnect: 'retry'}));
         }
 
         _batch = 0;
@@ -784,7 +664,6 @@ var CometD = function(name)
             minimumVersion: version,
             channel: '/meta/handshake',
             supportedConnectionTypes: transportTypes,
-            _callback: handshakeCallback,
             advice: {
                 timeout: _advice.timeout,
                 interval: _advice.interval
@@ -793,13 +672,14 @@ var CometD = function(name)
         // Do not allow the user to override important fields.
         var message = _cometd._mixin(false, {}, _handshakeProps, bayeuxMessage);
 
+        // Save the callback.
+        _cometd._putCallback(message.id, handshakeCallback);
+
         // Pick up the first available transport as initial transport
         // since we don't know if the server supports it
-        if (!_transport)
-        {
+        if (!_transport) {
             _transport = _transports.negotiateTransport(transportTypes, version, _crossDomain, url);
-            if (!_transport)
-            {
+            if (!_transport) {
                 var failure = 'Could not find initial transport among: ' + _transports.getTransportTypes();
                 _cometd._warn(failure);
                 throw failure;
@@ -815,8 +695,7 @@ var CometD = function(name)
         _send(false, [message], false, 'handshake');
     }
 
-    function _delayedHandshake()
-    {
+    function _delayedHandshake(delay) {
         _setStatus('handshaking');
 
         // We will call _handshake() which will reset _clientId, but we want to avoid
@@ -824,67 +703,63 @@ var CometD = function(name)
         // call publish() (or other methods that call _queueSend()).
         _internalBatch = true;
 
-        _delayedSend(function()
-        {
+        _delayedSend(function() {
             _handshake(_handshakeProps, _handshakeCallback);
-        });
+        }, delay);
     }
 
-    function _notifyCallback(callback, message)
-    {
-        try
-        {
+    function _notifyCallback(callback, message) {
+        try {
             callback.call(_cometd, message);
-        }
-        catch (x)
-        {
+        } catch (x) {
             var handler = _cometd.onCallbackException;
-            if (_isFunction(handler))
-            {
+            if (_isFunction(handler)) {
                 _cometd._debug('Invoking callback exception handler', x);
-                try
-                {
+                try {
                     handler.call(_cometd, x, message);
-                }
-                catch (xx)
-                {
+                } catch (xx) {
                     _cometd._info('Exception during execution of callback exception handler', xx);
                 }
-            }
-            else
-            {
+            } else {
                 _cometd._info('Exception during execution of message callback', x);
             }
         }
     }
 
-    function _handleCallback(message)
-    {
-        var callback = _callbacks[message.id];
-        if (_isFunction(callback))
-        {
+    this._getCallback = function(messageId) {
+        return _callbacks[messageId];
+    };
+
+    this._putCallback = function(messageId, callback) {
+        var result = this._getCallback(messageId);
+        if (_isFunction(callback)) {
+            _callbacks[messageId] = callback;
+        }
+        return result;
+    };
+
+    function _handleCallback(message) {
+        var callback = _cometd._getCallback([message.id]);
+        if (_isFunction(callback)) {
             delete _callbacks[message.id];
             _notifyCallback(callback, message);
         }
     }
 
-    function _handleRemoteCall(message)
-    {
+    function _handleRemoteCall(message) {
         var context = _remoteCalls[message.id];
         delete _remoteCalls[message.id];
-        _cometd._debug('Handling remote call response for', message, 'with context', context);
-        if (context)
-        {
+        if (context) {
+            _cometd._debug('Handling remote call response for', message, 'with context', context);
+
             // Clear the timeout, if present.
             var timeout = context.timeout;
-            if (timeout)
-            {
-                Utils.clearTimeout(timeout);
+            if (timeout) {
+                org.cometd.Utils.clearTimeout(timeout);
             }
 
             var callback = context.callback;
-            if (_isFunction(callback))
-            {
+            if (_isFunction(callback)) {
                 _notifyCallback(callback, message);
                 return true;
             }
@@ -892,55 +767,140 @@ var CometD = function(name)
         return false;
     }
 
-    function _failHandshake(message)
-    {
+    this.onTransportFailure = function(message, failureInfo, failureHandler) {
+        this._debug('Transport failure', failureInfo, 'for', message);
+
+        var transports = this.getTransportRegistry();
+        var url = this.getURL();
+        var crossDomain = this._isCrossDomain(_splitURL(url)[2]);
+        var version = '1.0';
+        var transportTypes = transports.findTransportTypes(version, crossDomain, url);
+
+        if (failureInfo.action === 'none') {
+            if (message.channel === '/meta/handshake') {
+                if (!failureInfo.transport) {
+                    var failure = 'Could not negotiate transport, client=[' + transportTypes + '], server=[' + message.supportedConnectionTypes + ']';
+                    this._warn(failure);
+                    _notifyTransportException(_transport.getType(), null, {
+                        reason: failure,
+                        connectionType: _transport.getType(),
+                        transport: _transport
+                    });
+                }
+            }
+        } else {
+            failureInfo.delay = this.getBackoffPeriod();
+            // Different logic depending on whether we are handshaking or connecting.
+            if (message.channel === '/meta/handshake') {
+                if (!failureInfo.transport) {
+                    // The transport is invalid, try to negotiate again.
+                    var newTransport = transports.negotiateTransport(transportTypes, version, crossDomain, url);
+                    if (!newTransport) {
+                        this._warn('Could not negotiate transport, client=[' + transportTypes + ']');
+                        _notifyTransportException(_transport.getType(), null, message.failure);
+                        failureInfo.action = 'none';
+                    } else {
+                        this._debug('Transport', _transport.getType(), '->', newTransport.getType());
+                        _notifyTransportException(_transport.getType(), newTransport.getType(), message.failure);
+                        failureInfo.action = 'handshake';
+                        failureInfo.transport = newTransport;
+                    }
+                }
+
+                if (failureInfo.action !== 'none') {
+                    this.increaseBackoffPeriod();
+                }
+            } else {
+                var now = new Date().getTime();
+
+                if (_unconnectTime === 0) {
+                    _unconnectTime = now;
+                }
+
+                if (failureInfo.action === 'retry') {
+                    failureInfo.delay = this.increaseBackoffPeriod();
+                    // Check whether we may switch to handshaking.
+                    var maxInterval = _advice.maxInterval;
+                    if (maxInterval > 0) {
+                        var expiration = _advice.timeout + _advice.interval + maxInterval;
+                        var unconnected = now - _unconnectTime;
+                        if (unconnected + _backoff > expiration) {
+                            failureInfo.action = 'handshake';
+                        }
+                    }
+                }
+
+                if (failureInfo.action === 'handshake') {
+                    failureInfo.delay = 0;
+                    transports.reset(false);
+                    this.resetBackoffPeriod();
+                }
+            }
+        }
+
+        failureHandler.call(_cometd, failureInfo);
+    };
+
+    function _handleTransportFailure(failureInfo) {
+        _cometd._debug('Transport failure handling', failureInfo);
+
+        if (failureInfo.transport) {
+            _transport = failureInfo.transport;
+        }
+
+        if (failureInfo.url) {
+            _transport.setURL(failureInfo.url);
+        }
+
+        var action = failureInfo.action;
+        var delay = failureInfo.delay || 0;
+        switch (action) {
+            case 'handshake':
+                _delayedHandshake(delay);
+                break;
+            case 'retry':
+                _delayedConnect(delay);
+                break;
+            case 'none':
+                _disconnect(true);
+                break;
+            default:
+                throw 'Unknown action ' + action;
+        }
+    }
+
+    function _failHandshake(message, failureInfo) {
         _handleCallback(message);
         _notifyListeners('/meta/handshake', message);
         _notifyListeners('/meta/unsuccessful', message);
 
-        // Only try again if we haven't been disconnected and
-        // the advice permits us to retry the handshake
-        var retry = !_isDisconnected() && _advice.reconnect !== 'none';
-        if (retry)
-        {
-            _increaseBackoff();
-            _delayedHandshake();
+        // The listeners may have disconnected.
+        if (_isDisconnected()) {
+            failureInfo.action = 'none';
         }
-        else
-        {
-            _disconnect(true);
-        }
+
+        _cometd.onTransportFailure.call(_cometd, message, failureInfo, _handleTransportFailure);
     }
 
-    function _handshakeResponse(message)
-    {
-        if (message.successful)
-        {
-            // Save clientId, figure out transport, then follow the advice to connect
-            _clientId = message.clientId;
-
-            var url = _cometd.getURL();
-            var newTransport = _transports.negotiateTransport(message.supportedConnectionTypes, message.version, _crossDomain, url);
-            if (newTransport === null)
-            {
-                var failure = 'Could not negotiate transport with server; client=[' +
-                    _transports.findTransportTypes(message.version, _crossDomain, url) +
-                    '], server=[' + message.supportedConnectionTypes + ']';
-                var oldTransport = _cometd.getTransport();
-                _notifyTransportFailure(oldTransport.getType(), null, {
-                    reason: failure,
-                    connectionType: oldTransport.getType(),
-                    transport: oldTransport
+    function _handshakeResponse(message) {
+        var url = _cometd.getURL();
+        if (message.successful) {
+            var crossDomain = _cometd._isCrossDomain(_splitURL(url)[2]);
+            var newTransport = _transports.negotiateTransport(message.supportedConnectionTypes, message.version, crossDomain, url);
+            if (newTransport === null) {
+                message.successful = false;
+                _failHandshake(message, {
+                    cause: 'negotiation',
+                    action: 'none',
+                    transport: null
                 });
-                _cometd._warn(failure);
-                _disconnect(true);
                 return;
-            }
-            else if (_transport !== newTransport)
-            {
+            } else if (_transport !== newTransport) {
                 _cometd._debug('Transport', _transport.getType(), '->', newTransport.getType());
                 _transport = newTransport;
             }
+
+            _clientId = message.clientId;
 
             // End the internal batch and allow held messages from the application
             // to go to the server (see _handshake() where we start the internal batch).
@@ -956,12 +916,17 @@ var CometD = function(name)
             _handleCallback(message);
             _notifyListeners('/meta/handshake', message);
 
-            var action = _isDisconnected() ? 'none' : _advice.reconnect;
-            switch (action)
-            {
+            _handshakeMessages = message['x-messages'] || 0;
+
+            var action = _isDisconnected() ? 'none' : _advice.reconnect || 'retry';
+            switch (action) {
                 case 'retry':
                     _resetBackoff();
-                    _delayedConnect();
+                    if (_handshakeMessages === 0) {
+                        _delayedConnect(0);
+                    } else {
+                        _cometd._debug('Processing', _handshakeMessages, 'handshake-delivered messages');
+                    }
                     break;
                 case 'none':
                     _disconnect(true);
@@ -969,144 +934,105 @@ var CometD = function(name)
                 default:
                     throw 'Unrecognized advice action ' + action;
             }
-        }
-        else
-        {
-            _failHandshake(message);
-        }
-    }
-
-    function _handshakeFailure(message)
-    {
-        var version = '1.0';
-        var url = _cometd.getURL();
-        var oldTransport = _cometd.getTransport();
-        var transportTypes = _transports.findTransportTypes(version, _crossDomain, url);
-        var newTransport = _transports.negotiateTransport(transportTypes, version, _crossDomain, url);
-        if (!newTransport)
-        {
-            _notifyTransportFailure(oldTransport.getType(), null, message.failure);
-            _cometd._warn('Could not negotiate transport; client=[' + transportTypes + ']');
-            _disconnect(true);
-            _failHandshake(message);
-        }
-        else
-        {
-            _cometd._debug('Transport', oldTransport.getType(), '->', newTransport.getType());
-            _notifyTransportFailure(oldTransport.getType(), newTransport.getType(), message.failure);
-            _failHandshake(message);
-            _transport = newTransport;
+        } else {
+            _failHandshake(message, {
+                cause: 'unsuccessful',
+                action: _advice.reconnect || 'handshake',
+                transport: _transport
+            });
         }
     }
 
-    function _failConnect(message)
-    {
-        // Notify the listeners after the status change but before the next action
+    function _handshakeFailure(message) {
+        _failHandshake(message, {
+            cause: 'failure',
+            action: 'handshake',
+            transport: null
+        });
+    }
+
+    function _failConnect(message, failureInfo) {
+        // Notify the listeners after the status change but before the next action.
         _notifyListeners('/meta/connect', message);
         _notifyListeners('/meta/unsuccessful', message);
 
-        // This may happen when the server crashed, the current clientId
-        // will be invalid, and the server will ask to handshake again
-        // Listeners can call disconnect(), so check the state after they run
-        var action = _isDisconnected() ? 'none' : _advice.reconnect;
-        switch (action)
-        {
-            case 'retry':
-                _delayedConnect();
-                _increaseBackoff();
-                break;
-            case 'handshake':
-                // The current transport may be failed (e.g. network disconnection)
-                // Reset the transports so the new handshake picks up the right one
-                _transports.reset();
-                _resetBackoff();
-                _delayedHandshake();
-                break;
-            case 'none':
-                _disconnect(true);
-                break;
-            default:
-                throw 'Unrecognized advice action' + action;
+        // The listeners may have disconnected.
+        if (_isDisconnected()) {
+            failureInfo.action = 'none';
         }
+
+        _cometd.onTransportFailure.call(_cometd, message, failureInfo, _handleTransportFailure);
     }
 
-    function _connectResponse(message)
-    {
+    function _connectResponse(message) {
         _connected = message.successful;
 
-        if (_connected)
-        {
+        if (_connected) {
             _notifyListeners('/meta/connect', message);
 
             // Normally, the advice will say "reconnect: 'retry', interval: 0"
             // and the server will hold the request, so when a response returns
-            // we immediately call the server again (long polling)
-            // Listeners can call disconnect(), so check the state after they run
-            var action = _isDisconnected() ? 'none' : _advice.reconnect;
-            switch (action)
-            {
+            // we immediately call the server again (long polling).
+            // Listeners can call disconnect(), so check the state after they run.
+            var action = _isDisconnected() ? 'none' : _advice.reconnect || 'retry';
+            switch (action) {
                 case 'retry':
                     _resetBackoff();
-                    _delayedConnect();
+                    _delayedConnect(_backoff);
                     break;
                 case 'none':
-                    // Wait for the /meta/disconnect to arrive.
                     _disconnect(false);
                     break;
                 default:
                     throw 'Unrecognized advice action ' + action;
             }
-        }
-        else
-        {
-            _failConnect(message);
+        } else {
+            _failConnect(message, {
+                cause: 'unsuccessful',
+                action: _advice.reconnect || 'retry',
+                transport: _transport
+            });
         }
     }
 
-    function _connectFailure(message)
-    {
+    function _connectFailure(message) {
         _connected = false;
-        _failConnect(message);
+
+        _failConnect(message, {
+            cause: 'failure',
+            action: 'retry',
+            transport: null
+        });
     }
 
-    function _failDisconnect(message)
-    {
+    function _failDisconnect(message) {
         _disconnect(true);
         _handleCallback(message);
         _notifyListeners('/meta/disconnect', message);
         _notifyListeners('/meta/unsuccessful', message);
     }
 
-    function _disconnectResponse(message)
-    {
-        if (message.successful)
-        {
+    function _disconnectResponse(message) {
+        if (message.successful) {
             // Wait for the /meta/connect to arrive.
             _disconnect(false);
             _handleCallback(message);
             _notifyListeners('/meta/disconnect', message);
-        }
-        else
-        {
+        } else {
             _failDisconnect(message);
         }
     }
 
-    function _disconnectFailure(message)
-    {
+    function _disconnectFailure(message) {
         _failDisconnect(message);
     }
 
-    function _failSubscribe(message)
-    {
+    function _failSubscribe(message) {
         var subscriptions = _listeners[message.subscription];
-        if (subscriptions)
-        {
-            for (var i = subscriptions.length - 1; i >= 0; --i)
-            {
+        if (subscriptions) {
+            for (var i = subscriptions.length - 1; i >= 0; --i) {
                 var subscription = subscriptions[i];
-                if (subscription && !subscription.listener)
-                {
+                if (subscription && !subscription.listener) {
                     delete subscriptions[i];
                     _cometd._debug('Removed failed subscription', subscription);
                     break;
@@ -1118,107 +1044,88 @@ var CometD = function(name)
         _notifyListeners('/meta/unsuccessful', message);
     }
 
-    function _subscribeResponse(message)
-    {
-        if (message.successful)
-        {
+    function _subscribeResponse(message) {
+        if (message.successful) {
             _handleCallback(message);
             _notifyListeners('/meta/subscribe', message);
-        }
-        else
-        {
+        } else {
             _failSubscribe(message);
         }
     }
 
-    function _subscribeFailure(message)
-    {
+    function _subscribeFailure(message) {
         _failSubscribe(message);
     }
 
-    function _failUnsubscribe(message)
-    {
+    function _failUnsubscribe(message) {
         _handleCallback(message);
         _notifyListeners('/meta/unsubscribe', message);
         _notifyListeners('/meta/unsuccessful', message);
     }
 
-    function _unsubscribeResponse(message)
-    {
-        if (message.successful)
-        {
+    function _unsubscribeResponse(message) {
+        if (message.successful) {
             _handleCallback(message);
             _notifyListeners('/meta/unsubscribe', message);
-        }
-        else
-        {
+        } else {
             _failUnsubscribe(message);
         }
     }
 
-    function _unsubscribeFailure(message)
-    {
+    function _unsubscribeFailure(message) {
         _failUnsubscribe(message);
     }
 
-    function _failMessage(message)
-    {
-        if (!_handleRemoteCall(message))
-        {
+    function _failMessage(message) {
+        if (!_handleRemoteCall(message)) {
             _handleCallback(message);
             _notifyListeners('/meta/publish', message);
             _notifyListeners('/meta/unsuccessful', message);
         }
     }
 
-    function _messageResponse(message)
-    {
-        if (message.data !== undefined)
-        {
-            if (!_handleRemoteCall(message))
-            {
+    function _messageResponse(message) {
+        if (message.data !== undefined) {
+            if (!_handleRemoteCall(message)) {
                 _notifyListeners(message.channel, message);
+                if (_handshakeMessages > 0) {
+                    --_handshakeMessages;
+                    if (_handshakeMessages === 0) {
+                        _cometd._debug('Processed last handshake-delivered message');
+                        _delayedConnect(0);
+                    }
+                }
             }
-        }
-        else
-        {
-            if (message.successful === undefined)
-            {
+        } else {
+            if (message.successful === undefined) {
                 _cometd._warn('Unknown Bayeux Message', message);
-            }
-            else
-            {
-                if (message.successful)
-                {
+            } else {
+                if (message.successful) {
                     _handleCallback(message);
                     _notifyListeners('/meta/publish', message);
-                }
-                else
-                {
+                } else {
                     _failMessage(message);
                 }
             }
         }
     }
 
-    function _messageFailure(failure)
-    {
+    function _messageFailure(failure) {
         _failMessage(failure);
     }
 
-    function _receive(message)
-    {
+    function _receive(message) {
+        _unconnectTime = 0;
+
         message = _applyIncomingExtensions(message);
-        if (message === undefined || message === null)
-        {
+        if (message === undefined || message === null) {
             return;
         }
 
         _updateAdvice(message.advice);
 
         var channel = message.channel;
-        switch (channel)
-        {
+        switch (channel) {
             case '/meta/handshake':
                 _handshakeResponse(message);
                 break;
@@ -1247,24 +1154,20 @@ var CometD = function(name)
      */
     this.receive = _receive;
 
-    _handleMessages = function(rcvdMessages)
-    {
+    _handleMessages = function(rcvdMessages) {
         _cometd._debug('Received', rcvdMessages);
 
-        for (var i = 0; i < rcvdMessages.length; ++i)
-        {
+        for (var i = 0; i < rcvdMessages.length; ++i) {
             var message = rcvdMessages[i];
             _receive(message);
         }
     };
 
-    _handleFailure = function(conduit, messages, failure)
-    {
+    _handleFailure = function(conduit, messages, failure) {
         _cometd._debug('handleFailure', conduit, messages, failure);
 
         failure.transport = conduit;
-        for (var i = 0; i < messages.length; ++i)
-        {
+        for (var i = 0; i < messages.length; ++i) {
             var message = messages[i];
             var failureMessage = {
                 id: message.id,
@@ -1273,8 +1176,7 @@ var CometD = function(name)
                 failure: failure
             };
             failure.message = message;
-            switch (message.channel)
-            {
+            switch (message.channel) {
                 case '/meta/handshake':
                     _handshakeFailure(failureMessage);
                     break;
@@ -1299,15 +1201,11 @@ var CometD = function(name)
         }
     };
 
-    function _hasSubscriptions(channel)
-    {
+    function _hasSubscriptions(channel) {
         var subscriptions = _listeners[channel];
-        if (subscriptions)
-        {
-            for (var i = 0; i < subscriptions.length; ++i)
-            {
-                if (subscriptions[i])
-                {
+        if (subscriptions) {
+            for (var i = 0; i < subscriptions.length; ++i) {
+                if (subscriptions[i]) {
                     return true;
                 }
             }
@@ -1315,41 +1213,31 @@ var CometD = function(name)
         return false;
     }
 
-    function _resolveScopedCallback(scope, callback)
-    {
+    function _resolveScopedCallback(scope, callback) {
         var delegate = {
             scope: scope,
             method: callback
         };
-        if (_isFunction(scope))
-        {
+        if (_isFunction(scope)) {
             delegate.scope = undefined;
             delegate.method = scope;
-        }
-        else
-        {
-            if (_isString(callback))
-            {
-                if (!scope)
-                {
+        } else {
+            if (_isString(callback)) {
+                if (!scope) {
                     throw 'Invalid scope ' + scope;
                 }
                 delegate.method = scope[callback];
-                if (!_isFunction(delegate.method))
-                {
+                if (!_isFunction(delegate.method)) {
                     throw 'Invalid callback ' + callback + ' for scope ' + scope;
                 }
-            }
-            else if (!_isFunction(callback))
-            {
+            } else if (!_isFunction(callback)) {
                 throw 'Invalid callback ' + callback;
             }
         }
         return delegate;
     }
 
-    function _addListener(channel, scope, callback, isListener)
-    {
+    function _addListener(channel, scope, callback, isListener) {
         // The data structure is a map<channel, subscription[]>, where each subscription
         // holds the callback to be called and its scope.
 
@@ -1364,8 +1252,7 @@ var CometD = function(name)
         };
 
         var subscriptions = _listeners[channel];
-        if (!subscriptions)
-        {
+        if (!subscriptions) {
             subscriptions = [];
             _listeners[channel] = subscriptions;
         }
@@ -1402,27 +1289,16 @@ var CometD = function(name)
      * @return true if the transport has been registered, false otherwise
      * @see #unregisterTransport(type)
      */
-    this.registerTransport = function(type, transport, index)
-    {
+    this.registerTransport = function(type, transport, index) {
         var result = _transports.add(type, transport, index);
-        if (result)
-        {
+        if (result) {
             this._debug('Registered transport', type);
 
-            if (_isFunction(transport.registered))
-            {
+            if (_isFunction(transport.registered)) {
                 transport.registered(type, this);
             }
         }
         return result;
-    };
-
-    /**
-     * @return an array of all registered transport types
-     */
-    this.getTransportTypes = function()
-    {
-        return _transports.getTransportTypes();
     };
 
     /**
@@ -1431,29 +1307,38 @@ var CometD = function(name)
      * @return the transport that has been unregistered,
      * or null if no transport was previously registered under the given transport type
      */
-    this.unregisterTransport = function(type)
-    {
+    this.unregisterTransport = function(type) {
         var transport = _transports.remove(type);
-        if (transport !== null)
-        {
+        if (transport !== null) {
             this._debug('Unregistered transport', type);
 
-            if (_isFunction(transport.unregistered))
-            {
+            if (_isFunction(transport.unregistered)) {
                 transport.unregistered();
             }
         }
         return transport;
     };
 
-    this.unregisterTransports = function()
-    {
+    this.unregisterTransports = function() {
         _transports.clear();
     };
 
-    this.findTransport = function(name)
-    {
+    /**
+     * @return an array of all registered transport types
+     */
+    this.getTransportTypes = function() {
+        return _transports.getTransportTypes();
+    };
+
+    this.findTransport = function(name) {
         return _transports.find(name);
+    };
+
+    /**
+     * @returns the TransportRegistry object
+     */
+    this.getTransportRegistry = function() {
+        return _transports;
     };
 
     /**
@@ -1462,8 +1347,7 @@ var CometD = function(name)
      * of type string containing the URL of the Bayeux server.
      * @param configuration the configuration object
      */
-    this.configure = function(configuration)
-    {
+    this.configure = function(configuration) {
         _configure.call(this, configuration);
     };
 
@@ -1475,8 +1359,7 @@ var CometD = function(name)
      * @see #configure(configuration)
      * @see #handshake(handshakeProps)
      */
-    this.init = function(configuration, handshakeProps)
-    {
+    this.init = function(configuration, handshakeProps) {
         this.configure(configuration);
         this.handshake(handshakeProps);
     };
@@ -1487,8 +1370,7 @@ var CometD = function(name)
      * @param handshakeProps an object to be merged with the handshake message
      * @param handshakeCallback a function to be invoked when the handshake is acknowledged
      */
-    this.handshake = function(handshakeProps, handshakeCallback)
-    {
+    this.handshake = function(handshakeProps, handshakeCallback) {
         _setStatus('disconnected');
         _reestablish = false;
         _handshake(handshakeProps, handshakeCallback);
@@ -1503,32 +1385,31 @@ var CometD = function(name)
      * @param disconnectProps an object to be merged with the disconnect message
      * @param disconnectCallback a function to be invoked when the disconnect is acknowledged
      */
-    this.disconnect = function(sync, disconnectProps, disconnectCallback)
-    {
-        if (_isDisconnected())
-        {
+    this.disconnect = function(sync, disconnectProps, disconnectCallback) {
+        if (_isDisconnected()) {
             return;
         }
 
-        if (typeof sync !== 'boolean')
-        {
+        if (typeof sync !== 'boolean') {
             disconnectCallback = disconnectProps;
             disconnectProps = sync;
             sync = false;
         }
-        if (_isFunction(disconnectProps))
-        {
+        if (_isFunction(disconnectProps)) {
             disconnectCallback = disconnectProps;
             disconnectProps = undefined;
         }
 
         var bayeuxMessage = {
             id: _nextMessageId(),
-            channel: '/meta/disconnect',
-            _callback: disconnectCallback
+            channel: '/meta/disconnect'
         };
         // Do not allow the user to override important fields.
         var message = this._mixin(false, {}, disconnectProps, bayeuxMessage);
+
+        // Save the callback.
+        _cometd._putCallback(message.id, disconnectCallback);
+
         _setStatus('disconnecting');
         _send(sync === true, [message], false, 'disconnect');
     };
@@ -1542,8 +1423,7 @@ var CometD = function(name)
      * calls must be made to close and send the batch of messages.
      * @see #endBatch()
      */
-    this.startBatch = function()
-    {
+    this.startBatch = function() {
         _startBatch();
     };
 
@@ -1552,8 +1432,7 @@ var CometD = function(name)
      * in a single request.
      * @see #startBatch()
      */
-    this.endBatch = function()
-    {
+    this.endBatch = function() {
         _endBatch();
     };
 
@@ -1563,17 +1442,13 @@ var CometD = function(name)
      * @param scope the scope of the callback, may be omitted
      * @param callback the callback to be executed within {@link #startBatch()} and {@link #endBatch()} calls
      */
-    this.batch = function(scope, callback)
-    {
+    this.batch = function(scope, callback) {
         var delegate = _resolveScopedCallback(scope, callback);
         this.startBatch();
-        try
-        {
+        try {
             delegate.method.call(delegate.scope);
             this.endBatch();
-        }
-        catch (x)
-        {
+        } catch (x) {
             this._info('Exception during execution of batch', x);
             this.endBatch();
             throw x;
@@ -1589,14 +1464,11 @@ var CometD = function(name)
      * @returns the subscription handle to be passed to {@link #removeListener(object)}
      * @see #removeListener(subscription)
      */
-    this.addListener = function(channel, scope, callback)
-    {
-        if (arguments.length < 2)
-        {
+    this.addListener = function(channel, scope, callback) {
+        if (arguments.length < 2) {
             throw 'Illegal arguments number: required 2, got ' + arguments.length;
         }
-        if (!_isString(channel))
-        {
+        if (!_isString(channel)) {
             throw 'Illegal argument type: channel must be a string';
         }
 
@@ -1608,11 +1480,9 @@ var CometD = function(name)
      * @param subscription the subscription to unsubscribe.
      * @see #addListener(channel, scope, callback)
      */
-    this.removeListener = function(subscription)
-    {
+    this.removeListener = function(subscription) {
         // Beware of subscription.id == 0, which is falsy => cannot use !subscription.id
-        if (!subscription || !subscription.channel || !("id" in subscription))
-        {
+        if (!subscription || !subscription.channel || !("id" in subscription)) {
             throw 'Invalid argument: expected subscription, not ' + subscription;
         }
 
@@ -1623,8 +1493,7 @@ var CometD = function(name)
      * Removes all listeners registered with {@link #addListener(channel, scope, callback)} or
      * {@link #subscribe(channel, scope, callback)}.
      */
-    this.clearListeners = function()
-    {
+    this.clearListeners = function() {
         _listeners = {};
     };
 
@@ -1638,31 +1507,25 @@ var CometD = function(name)
      * @param subscribeCallback a function to be invoked when the subscription is acknowledged
      * @return the subscription handle to be passed to {@link #unsubscribe(object)}
      */
-    this.subscribe = function(channel, scope, callback, subscribeProps, subscribeCallback)
-    {
-        if (arguments.length < 2)
-        {
+    this.subscribe = function(channel, scope, callback, subscribeProps, subscribeCallback) {
+        if (arguments.length < 2) {
             throw 'Illegal arguments number: required 2, got ' + arguments.length;
         }
-        if (!_isString(channel))
-        {
+        if (!_isString(channel)) {
             throw 'Illegal argument type: channel must be a string';
         }
-        if (_isDisconnected())
-        {
+        if (_isDisconnected()) {
             throw 'Illegal state: already disconnected';
         }
 
         // Normalize arguments
-        if (_isFunction(scope))
-        {
+        if (_isFunction(scope)) {
             subscribeCallback = subscribeProps;
             subscribeProps = callback;
             callback = scope;
             scope = undefined;
         }
-        if (_isFunction(subscribeProps))
-        {
+        if (_isFunction(subscribeProps)) {
             subscribeCallback = subscribeProps;
             subscribeProps = undefined;
         }
@@ -1672,19 +1535,21 @@ var CometD = function(name)
 
         var subscription = _addListener(channel, scope, callback, false);
 
-        if (send)
-        {
+        if (send) {
             // Send the subscription message after the subscription registration to avoid
             // races where the server would send a message to the subscribers, but here
             // on the client the subscription has not been added yet to the data structures
             var bayeuxMessage = {
                 id: _nextMessageId(),
                 channel: '/meta/subscribe',
-                subscription: channel,
-                _callback: subscribeCallback
+                subscription: channel
             };
             // Do not allow the user to override important fields.
             var message = this._mixin(false, {}, subscribeProps, bayeuxMessage);
+
+            // Save the callback.
+            _cometd._putCallback(message.id, subscribeCallback);
+
             _queueSend(message);
         }
 
@@ -1697,19 +1562,15 @@ var CometD = function(name)
      * @param unsubscribeProps an object to be merged with the unsubscribe message
      * @param unsubscribeCallback a function to be invoked when the unsubscription is acknowledged
      */
-    this.unsubscribe = function(subscription, unsubscribeProps, unsubscribeCallback)
-    {
-        if (arguments.length < 1)
-        {
+    this.unsubscribe = function(subscription, unsubscribeProps, unsubscribeCallback) {
+        if (arguments.length < 1) {
             throw 'Illegal arguments number: required 1, got ' + arguments.length;
         }
-        if (_isDisconnected())
-        {
+        if (_isDisconnected()) {
             throw 'Illegal state: already disconnected';
         }
 
-        if (_isFunction(unsubscribeProps))
-        {
+        if (_isFunction(unsubscribeProps)) {
             unsubscribeCallback = unsubscribeProps;
             unsubscribeProps = undefined;
         }
@@ -1720,25 +1581,25 @@ var CometD = function(name)
 
         var channel = subscription.channel;
         // Only send the message to the server if this client unsubscribes the last subscription
-        if (!_hasSubscriptions(channel))
-        {
+        if (!_hasSubscriptions(channel)) {
             var bayeuxMessage = {
                 id: _nextMessageId(),
                 channel: '/meta/unsubscribe',
-                subscription: channel,
-                _callback: unsubscribeCallback
+                subscription: channel
             };
             // Do not allow the user to override important fields.
             var message = this._mixin(false, {}, unsubscribeProps, bayeuxMessage);
+
+            // Save the callback.
+            _cometd._putCallback(message.id, unsubscribeCallback);
+
             _queueSend(message);
         }
     };
 
-    this.resubscribe = function(subscription, subscribeProps)
-    {
+    this.resubscribe = function(subscription, subscribeProps) {
         _removeSubscription(subscription);
-        if (subscription)
-        {
+        if (subscription) {
             return this.subscribe(subscription.channel, subscription.scope, subscription.callback, subscribeProps);
         }
         return undefined;
@@ -1748,8 +1609,7 @@ var CometD = function(name)
      * Removes all subscriptions added via {@link #subscribe(channel, scope, callback, subscribeProps)},
      * but does not remove the listeners added via {@link addListener(channel, scope, callback)}.
      */
-    this.clearSubscriptions = function()
-    {
+    this.clearSubscriptions = function() {
         _clearSubscriptions();
     };
 
@@ -1760,32 +1620,24 @@ var CometD = function(name)
      * @param publishProps an object to be merged with the publish message
      * @param publishCallback a function to be invoked when the publish is acknowledged by the server
      */
-    this.publish = function(channel, content, publishProps, publishCallback)
-    {
-        if (arguments.length < 1)
-        {
+    this.publish = function(channel, content, publishProps, publishCallback) {
+        if (arguments.length < 1) {
             throw 'Illegal arguments number: required 1, got ' + arguments.length;
         }
-        if (!_isString(channel))
-        {
+        if (!_isString(channel)) {
             throw 'Illegal argument type: channel must be a string';
         }
-        if (/^\/meta\//.test(channel))
-        {
+        if (/^\/meta\//.test(channel)) {
             throw 'Illegal argument: cannot publish to meta channels';
         }
-        if (_isDisconnected())
-        {
+        if (_isDisconnected()) {
             throw 'Illegal state: already disconnected';
         }
 
-        if (_isFunction(content))
-        {
+        if (_isFunction(content)) {
             publishCallback = content;
             content = publishProps = {};
-        }
-        else if (_isFunction(publishProps))
-        {
+        } else if (_isFunction(publishProps)) {
             publishCallback = publishProps;
             publishProps = {};
         }
@@ -1793,48 +1645,42 @@ var CometD = function(name)
         var bayeuxMessage = {
             id: _nextMessageId(),
             channel: channel,
-            data: content,
-            _callback: publishCallback
+            data: content
         };
         // Do not allow the user to override important fields.
         var message = this._mixin(false, {}, publishProps, bayeuxMessage);
+
+        // Save the callback.
+        _cometd._putCallback(message.id, publishCallback);
+
         _queueSend(message);
     };
 
-    this.remoteCall = function(target, content, timeout, callback)
-    {
-        if (arguments.length < 1)
-        {
+    this.remoteCall = function(target, content, timeout, callback) {
+        if (arguments.length < 1) {
             throw 'Illegal arguments number: required 1, got ' + arguments.length;
         }
-        if (!_isString(target))
-        {
+        if (!_isString(target)) {
             throw 'Illegal argument type: target must be a string';
         }
-        if (_isDisconnected())
-        {
+        if (_isDisconnected()) {
             throw 'Illegal state: already disconnected';
         }
 
-        if (_isFunction(content))
-        {
+        if (_isFunction(content)) {
             callback = content;
             content = {};
             timeout = _config.maxNetworkDelay;
-        }
-        else if (_isFunction(timeout))
-        {
+        } else if (_isFunction(timeout)) {
             callback = timeout;
             timeout = _config.maxNetworkDelay;
         }
 
-        if (typeof timeout !== 'number')
-        {
+        if (typeof timeout !== 'number') {
             throw 'Illegal argument type: timeout must be a number';
         }
 
-        if (!target.match(/^\//))
-        {
+        if (!target.match(/^\//)) {
             target = '/' + target;
         }
         var channel = '/service' + target;
@@ -1848,10 +1694,8 @@ var CometD = function(name)
         var context = {
             callback: callback
         };
-        if (timeout > 0)
-        {
-            context.timeout = Utils.setTimeout(_cometd, function()
-            {
+        if (timeout > 0) {
+            context.timeout = org.cometd.Utils.setTimeout(_cometd, function() {
                 _cometd._debug('Timing out remote call', bayeuxMessage, 'after', timeout, 'ms');
                 _failMessage({
                     id: bayeuxMessage.id,
@@ -1873,8 +1717,7 @@ var CometD = function(name)
     /**
      * Returns a string representing the status of the bayeux communication with the Bayeux server.
      */
-    this.getStatus = function()
-    {
+    this.getStatus = function() {
         return _status;
     };
 
@@ -1891,8 +1734,7 @@ var CometD = function(name)
      * @param period the backoff period to set
      * @see #getBackoffIncrement()
      */
-    this.setBackoffIncrement = function(period)
-    {
+    this.setBackoffIncrement = function(period) {
         _config.backoffIncrement = period;
     };
 
@@ -1900,17 +1742,31 @@ var CometD = function(name)
      * Returns the backoff period used to increase the backoff time when retrying an unsuccessful or failed message.
      * @see #setBackoffIncrement(period)
      */
-    this.getBackoffIncrement = function()
-    {
+    this.getBackoffIncrement = function() {
         return _config.backoffIncrement;
     };
 
     /**
      * Returns the backoff period to wait before retrying an unsuccessful or failed message.
      */
-    this.getBackoffPeriod = function()
-    {
+    this.getBackoffPeriod = function() {
         return _backoff;
+    };
+
+    /**
+     * Increases the backoff period up to the maximum value configured.
+     * @returns the backoff period after increment
+     * @see getBackoffIncrement
+     */
+    this.increaseBackoffPeriod = function() {
+        return _increaseBackoff();
+    };
+
+    /**
+     * Resets the backoff period to zero.
+     */
+    this.resetBackoffPeriod = function() {
+        _resetBackoff();
     };
 
     /**
@@ -1919,8 +1775,7 @@ var CometD = function(name)
      * less verbose to more verbose.
      * @param level the log level string
      */
-    this.setLogLevel = function(level)
-    {
+    this.setLogLevel = function(level) {
         _config.logLevel = level;
     };
 
@@ -1943,29 +1798,23 @@ var CometD = function(name)
      * @return true if the extension was registered, false otherwise
      * @see #unregisterExtension(name)
      */
-    this.registerExtension = function(name, extension)
-    {
-        if (arguments.length < 2)
-        {
+    this.registerExtension = function(name, extension) {
+        if (arguments.length < 2) {
             throw 'Illegal arguments number: required 2, got ' + arguments.length;
         }
-        if (!_isString(name))
-        {
+        if (!_isString(name)) {
             throw 'Illegal argument type: extension name must be a string';
         }
 
         var existing = false;
-        for (var i = 0; i < _extensions.length; ++i)
-        {
+        for (var i = 0; i < _extensions.length; ++i) {
             var existingExtension = _extensions[i];
-            if (existingExtension.name === name)
-            {
+            if (existingExtension.name === name) {
                 existing = true;
                 break;
             }
         }
-        if (!existing)
-        {
+        if (!existing) {
             _extensions.push({
                 name: name,
                 extension: extension
@@ -1973,15 +1822,12 @@ var CometD = function(name)
             this._debug('Registered extension', name);
 
             // Callback for extensions
-            if (_isFunction(extension.registered))
-            {
+            if (_isFunction(extension.registered)) {
                 extension.registered(name, this);
             }
 
             return true;
-        }
-        else
-        {
+        } else {
             this._info('Could not register extension with name', name, 'since another extension with the same name already exists');
             return false;
         }
@@ -1993,27 +1839,22 @@ var CometD = function(name)
      * @param name the name of the extension to unregister.
      * @return true if the extension was unregistered, false otherwise
      */
-    this.unregisterExtension = function(name)
-    {
-        if (!_isString(name))
-        {
+    this.unregisterExtension = function(name) {
+        if (!_isString(name)) {
             throw 'Illegal argument type: extension name must be a string';
         }
 
         var unregistered = false;
-        for (var i = 0; i < _extensions.length; ++i)
-        {
+        for (var i = 0; i < _extensions.length; ++i) {
             var extension = _extensions[i];
-            if (extension.name === name)
-            {
+            if (extension.name === name) {
                 _extensions.splice(i, 1);
                 unregistered = true;
                 this._debug('Unregistered extension', name);
 
                 // Callback for extensions
                 var ext = extension.extension;
-                if (_isFunction(ext.unregistered))
-                {
+                if (_isFunction(ext.unregistered)) {
                     ext.unregistered();
                 }
 
@@ -2028,13 +1869,10 @@ var CometD = function(name)
      * @param name the name of the extension to find
      * @return the extension found or null if no extension with the given name has been registered
      */
-    this.getExtension = function(name)
-    {
-        for (var i = 0; i < _extensions.length; ++i)
-        {
+    this.getExtension = function(name) {
+        for (var i = 0; i < _extensions.length; ++i) {
             var extension = _extensions[i];
-            if (extension.name === name)
-            {
+            if (extension.name === name) {
                 return extension.extension;
             }
         }
@@ -2045,50 +1883,45 @@ var CometD = function(name)
      * Returns the name assigned to this CometD object, or the string 'default'
      * if no name has been explicitly passed as parameter to the constructor.
      */
-    this.getName = function()
-    {
+    this.getName = function() {
         return _name;
     };
 
     /**
      * Returns the clientId assigned by the Bayeux server during handshake.
      */
-    this.getClientId = function()
-    {
+    this.getClientId = function() {
         return _clientId;
     };
 
     /**
      * Returns the URL of the Bayeux server.
      */
-    this.getURL = function()
-    {
-        if (_transport && typeof _config.urls === 'object')
-        {
-            var url = _config.urls[_transport.getType()];
-            if (url)
-            {
-                return  url;
+    this.getURL = function() {
+        if (_transport) {
+            var url = _transport.getURL();
+            if (url) {
+                return url;
+            }
+            url = _config.urls[_transport.getType()];
+            if (url) {
+                return url;
             }
         }
         return _config.url;
     };
 
-    this.getTransport = function()
-    {
+    this.getTransport = function() {
         return _transport;
     };
 
-    this.getConfiguration = function()
-    {
+    this.getConfiguration = function() {
         return this._mixin(true, {}, _config);
     };
 
-    this.getAdvice = function()
-    {
+    this.getAdvice = function() {
         return this._mixin(true, {}, _advice);
     };
-
 };
 
-module.exports = CometD;
+module.exports = org.cometd.CometD;

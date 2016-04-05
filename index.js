@@ -1,29 +1,47 @@
-/*
- * Copyright (c) 2008-2014 the original author or authors.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
-
 require('./src/cometd-header');
 
-module.exports = {
-  CometD                   : require('./src/CometD'),
-  Transport                : require('./src/Transport'),
-  LongPollingTransport     : require('./src/LongPollingTransport'),
-  CallbackPollingTransport : require('./src/CallbackPollingTransport'),
-  WebSocketTransport       : require('./src/WebSocketTransport'),
-  AckExtension             : require('./src/extensions/AckExtension'),
-  ReloadExtension          : require('./src/extensions/ReloadExtension'),
-  TimeStampExtension       : require('./src/extensions/TimeStampExtension'),
-  TimeSyncExtension        : require('./src/extensions/TimeSyncExtension')
-};
+// There is a bit of namespacing in the cometd library - most parts assume an
+// `org.cometd` namespace is available. For ease in keeping this library up to
+// date with the official lib, a reference to `org` is added to the top of each
+// file in place of the assumed global. As there are some interdependencies,
+// the files are requested in a particular order:
+
+// Files                    | Dependencies
+// -------------------------+-----------------------------------
+// Utils                    |
+// TransportRegistry        |
+//                          |
+// CometD                   | org.cometd.TransportRegistry
+//                          | org.cometd.Utils
+//                          |
+// Transport                | org.cometd.Utils
+//                          |
+// RequestTransport         | org.cometd.Transport
+//                          | org.cometd.Utils
+//                          |
+// CallbackPollingTransport | org.cometd.RequestTransport
+//                          | org.cometd.Transport
+//                          |
+// LongPollingTransport     | org.cometd.RequestTransport
+//                          | org.cometd.Transport
+//                          |
+// WebSocketTransport       | org.cometd.Utils
+//                          | org.cometd.Transport
+
+var org = require('./src/org');
+
+require('./src/Utils');
+require('./src/TransportRegistry');
+require('./src/CometD');
+require('./src/Transport');
+require('./src/RequestTransport');
+require('./src/CallbackPollingTransport');
+require('./src/LongPollingTransport');
+require('./src/WebSocketTransport');
+
+exports.cometd = org.cometd;
+
+exports.AckExtension       = require('./src/extensions/AckExtension');
+exports.ReloadExtension    = require('./src/extensions/ReloadExtension');
+exports.TimeStampExtension = require('./src/extensions/TimeStampExtension');
+exports.TimeSyncExtension  = require('./src/extensions/TimeSyncExtension');

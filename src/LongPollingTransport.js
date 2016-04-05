@@ -1,63 +1,48 @@
-var RequestTransport = require('./RequestTransport');
-var Transport = require('./Transport');
-var _JSON = require('./cometd-json');
+var org = require('./org');
 
-LongPollingTransport = function()
-{
-    var _super = new RequestTransport();
-    var _self = Transport.derive(_super);
+org.cometd.LongPollingTransport = function() {
+    var _super = new org.cometd.RequestTransport();
+    var _self = org.cometd.Transport.derive(_super);
     // By default, support cross domain
     var _supportsCrossDomain = true;
 
-    _self.accept = function(version, crossDomain, url)
-    {
+    _self.accept = function(version, crossDomain, url) {
         return _supportsCrossDomain || !crossDomain;
     };
 
-    _self.xhrSend = function(packet)
-    {
+    _self.xhrSend = function(packet) {
         throw 'Abstract';
     };
 
-    _self.transportSend = function(envelope, request)
-    {
+    _self.transportSend = function(envelope, request) {
         this._debug('Transport', this.getType(), 'sending request', request.id, 'envelope', envelope);
 
         var self = this;
-        try
-        {
+        try {
             var sameStack = true;
             request.xhr = this.xhrSend({
                 transport: this,
                 url: envelope.url,
                 sync: envelope.sync,
                 headers: this.getConfiguration().requestHeaders,
-                body: _JSON.toJSON(envelope.messages),
-                onSuccess: function(response)
-                {
+                body: JSON.stringify(envelope.messages),
+                onSuccess: function(response) {
                     self._debug('Transport', self.getType(), 'received response', response);
                     var success = false;
-                    try
-                    {
+                    try {
                         var received = self.convertToMessages(response);
-                        if (received.length === 0)
-                        {
+                        if (received.length === 0) {
                             _supportsCrossDomain = false;
                             self.transportFailure(envelope, request, {
                                 httpCode: 204
                             });
-                        }
-                        else
-                        {
+                        } else {
                             success = true;
                             self.transportSuccess(envelope, request, received);
                         }
-                    }
-                    catch(x)
-                    {
+                    } catch (x) {
                         self._debug(x);
-                        if (!success)
-                        {
+                        if (!success) {
                             _supportsCrossDomain = false;
                             var failure = {
                                 exception: x
@@ -67,8 +52,7 @@ LongPollingTransport = function()
                         }
                     }
                 },
-                onError: function(reason, exception)
-                {
+                onError: function(reason, exception) {
                     self._debug('Transport', self.getType(), 'received error', reason, exception);
                     _supportsCrossDomain = false;
                     var failure = {
@@ -76,28 +60,21 @@ LongPollingTransport = function()
                         exception: exception
                     };
                     failure.httpCode = self.xhrStatus(request.xhr);
-                    if (sameStack)
-                    {
+                    if (sameStack) {
                         // Keep the semantic of calling response callbacks asynchronously after the request
-                        self.setTimeout(function()
-                        {
+                        self.setTimeout(function() {
                             self.transportFailure(envelope, request, failure);
                         }, 0);
-                    }
-                    else
-                    {
+                    } else {
                         self.transportFailure(envelope, request, failure);
                     }
                 }
             });
             sameStack = false;
-        }
-        catch (x)
-        {
+        } catch (x) {
             _supportsCrossDomain = false;
             // Keep the semantic of calling response callbacks asynchronously after the request
-            this.setTimeout(function()
-            {
+            this.setTimeout(function() {
                 self.transportFailure(envelope, request, {
                     exception: x
                 });
@@ -105,13 +82,12 @@ LongPollingTransport = function()
         }
     };
 
-    _self.reset = function()
-    {
-        _super.reset();
+    _self.reset = function(init) {
+        _super.reset(init);
         _supportsCrossDomain = true;
     };
 
     return _self;
 };
 
-module.exports = LongPollingTransport;
+module.exports = org.cometd.LongPollingTransport;

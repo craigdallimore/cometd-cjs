@@ -1,18 +1,16 @@
-var Utils = {};
+var org = require('./org');
 
-Utils.isString = function(value)
-{
-    if (value === undefined || value === null)
-    {
+org.cometd.Utils = {};
+
+org.cometd.Utils.isString = function(value) {
+    if (value === undefined || value === null) {
         return false;
     }
-    return typeof value === 'string' ||  value instanceof String;
+    return typeof value === 'string' || value instanceof String;
 };
 
-Utils.isArray = function(value)
-{
-    if (value === undefined || value === null)
-    {
+org.cometd.Utils.isArray = function(value) {
+    if (value === undefined || value === null) {
         return false;
     }
     return value instanceof Array;
@@ -24,37 +22,28 @@ Utils.isArray = function(value)
  * @param array the array to check for the element presence
  * @return the index of the element, if present, or a negative index if the element is not present
  */
-Utils.inArray = function(element, array)
-{
-    for (var i = 0; i < array.length; ++i)
-    {
-        if (element === array[i])
-        {
+org.cometd.Utils.inArray = function(element, array) {
+    for (var i = 0; i < array.length; ++i) {
+        if (element === array[i]) {
             return i;
         }
     }
     return -1;
 };
 
-Utils.setTimeout = function(cometd, funktion, delay)
-{
-    return window.setTimeout(function()
-    {
-        try
-        {
+org.cometd.Utils.setTimeout = function(cometd, funktion, delay) {
+    return window.setTimeout(function() {
+        try {
             cometd._debug('Invoking timed function', funktion);
             funktion();
-        }
-        catch (x)
-        {
+        } catch (x) {
             cometd._debug('Exception invoking timed function', funktion, x);
         }
     }, delay);
 };
 
-Utils.clearTimeout = function(timeoutHandle)
-{
+org.cometd.Utils.clearTimeout = function(timeoutHandle) {
     window.clearTimeout(timeoutHandle);
 };
 
-module.exports = Utils;
+module.exports = org.cometd.Utils;
