@@ -13,7 +13,7 @@ This is based on the CometD 3.0.3 JavaScript library.
 ```javascript
 
 
-const { CometD, LongPollingTransport, Transport } = require('cometd-cjs').cometd;
+const { CometD, LongPollingTransport, Transport, BindReloadExtension } = require('cometd-cjs');
 
 // You need to implement the XHR for the transports.
 function LongPoller() {
@@ -57,7 +57,11 @@ function LongPoller() {
 
 const cometd = new CometD();
 
+// The bindX functions return the "org" object with the given extension "bound".
+const { ReloadExtension } = bindReloadExension();
+
 cometd.registerTransport('long-polling', new LongPoller());
+cometd.registerExtension('reload', new ReloadExtension());
 
 cometd.init('<somewhere>/cometd');
 
@@ -68,12 +72,6 @@ cometd.addListener('/meta/connect', message => {
 });
 
 ```
-
-## Todo
-
-- Look into using EventEmitters in place of the above boilerplate.
-- Ensure all the extensions work as expected.
-- Provide more transport examples.
 
 ## References
 

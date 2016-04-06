@@ -64,4 +64,9 @@ exports.BindTimeSyncExtension = function() {
   return org;
 };
 
-exports.cometd = org.cometd;
+exports.CometD                   = org.cometd.CometD;
+exports.Transport                = org.cometd.Transport;
+exports.RequestTransport         = org.cometd.RequestTransport;
+exports.CallbackPollingTransport = org.cometd.CallbackPollingTransport;
+exports.LongPollingTransport     = org.cometd.LongPollingTransport;
+exports.WebSocketTransport       = org.cometd.WebSocketTransport;
