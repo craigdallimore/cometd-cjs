@@ -44,22 +44,22 @@ var ReloadExtension = require('./src/extensions/ReloadExtension');
 var TimeStampExtension = require('./src/extensions/TimeStampExtension');
 var TimeSyncExtension = require('./src/extensions/TimeSyncExtension');
 
-exports.BindAckExtension = function() {
+exports.bindAckExtension = function() {
   AckExtension(org);
   return org;
 };
 
-exports.BindReloadExtension = function () {
+exports.bindReloadExtension = function () {
   ReloadExtension(org);
   return org;
 };
 
-exports.BindTimeStampExtension = function() {
+exports.bindTimeStampExtension = function() {
   TimeStampExtension(org);
   return org;
 };
 
-exports.BindTimeSyncExtension = function() {
+exports.bindTimeSyncExtension = function() {
   TimeSyncExtension(org);
   return org;
 };
