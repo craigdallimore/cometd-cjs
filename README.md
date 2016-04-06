@@ -13,7 +13,7 @@ This is based on the CometD 3.0.3 JavaScript library.
 ```javascript
 
 
-const { CometD, LongPollingTransport, Transport, BindReloadExtension } = require('cometd-cjs');
+const { CometD, LongPollingTransport, Transport, bindReloadExtension } = require('cometd-cjs');
 
 // You need to implement the XHR for the transports.
 function LongPoller() {
