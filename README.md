@@ -13,14 +13,14 @@ This is based on the CometD 3.0.3 JavaScript library.
 ```javascript
 
 
-const { CometD, LongPollingTransport, Transport } = require('cometd');
+const { CometD, LongPollingTransport, Transport } = require('cometd-cjs').cometd;
 
 // You need to implement the XHR for the transports.
 function LongPoller() {
 
   const transport = Transport.derive(new LongPollingTransport());
 
-  transport.xhrSend = function(packet) => {
+  transport.xhrSend = packet => {
 
     const xhr  = new XMLHttpRequest();
     const data = JSON.parse(packet.body);
@@ -61,7 +61,7 @@ cometd.registerTransport('long-polling', new LongPoller());
 
 cometd.init('<somewhere>/cometd');
 
-cometd.addListener('/meta/connect', (message) => {
+cometd.addListener('/meta/connect', message => {
 
   console.log(message);
 

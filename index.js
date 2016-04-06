@@ -39,9 +39,29 @@ require('./src/CallbackPollingTransport');
 require('./src/LongPollingTransport');
 require('./src/WebSocketTransport');
 
-exports.cometd = org.cometd;
+var AckExtension = require('./src/extensions/AckExtension');
+var ReloadExtension = require('./src/extensions/ReloadExtension');
+var TimeStampExtension = require('./src/extensions/TimeStampExtension');
+var TimeSyncExtension = require('./src/extensions/TimeSyncExtension');
 
-exports.AckExtension       = require('./src/extensions/AckExtension');
-exports.ReloadExtension    = require('./src/extensions/ReloadExtension');
-exports.TimeStampExtension = require('./src/extensions/TimeStampExtension');
-exports.TimeSyncExtension  = require('./src/extensions/TimeSyncExtension');
+exports.BindAckExtension = function() {
+  AckExtension(org);
+  return org;
+};
+
+exports.BindReloadExtension = function () {
+  ReloadExtension(org);
+  return org;
+};
+
+exports.BindTimeStampExtension = function() {
+  TimeStampExtension(org);
+  return org;
+};
+
+exports.BindTimeSyncExtension = function() {
+  TimeSyncExtension(org);
+  return org;
+};
+
+exports.cometd = org.cometd;
